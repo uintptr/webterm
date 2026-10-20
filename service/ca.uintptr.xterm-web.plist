@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ca.uintptr.xterm-web</string>
+
+    <!-- launchd has no %h expansion and no shell of its own, so $HOME is
+         resolved by this bash -c instead: it keeps the plist free of a
+         hardcoded user name, and gives the log an absolute path launchd's
+         StandardOutPath could not express. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>exec &gt;&gt;"$HOME/Library/Logs/xterm-web.log" 2&gt;&amp;1; export PATH="$HOME/.local/bin:$PATH"; cd "$HOME"; exec "$HOME/.Misc/desktop/xterm-web/server.py"</string>
+    </array>
+
+    <!-- PATH is set because launchd's own is /usr/bin:/bin:/usr/sbin:/sbin,
+         which has neither uv (the server's shebang is uv run, script mode)
+         nor Homebrew's dtach. It is also the PATH every new tab's shell
+         starts from, before its login profile runs.
+
+         No auth: BIND=0.0.0.0 is meant for a trusted VLAN. Set it to an
+         interface address (or 127.0.0.1) to narrow it. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>BIND</key>
+        <string>0.0.0.0</string>
+        <key>PORT</key>
+        <string>1234</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart on any exit, but not in a tight loop if it cannot bind. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- The tabs' shells are dtach masters the server started. They detach
+         into their own sessions already; this also stops launchd from killing
+         anything left in the job's process group when the server exits, so a
+         restart or a bootout leaves every tab running. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xterm-web</title>
+<link rel="stylesheet" href="/vendor/xterm/css/xterm.css">
+<style>
+  :root {
+    --bg: #000000;
+    --bar: #111111;
+    --tab: #1c1c1c;
+    --tab-active: #000000;
+    --fg: #e5e5e5;
+    --muted: #8a8a8a;
+    --accent: #4f8cc9;
+  }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg);
+    font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; }
+
+  #bar { display: flex; align-items: stretch; background: var(--bar); height: 34px;
+    border-bottom: 1px solid #000; overflow-x: auto; flex: none; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 12px;
+    background: var(--tab); color: var(--muted); border-right: 1px solid #000;
+    cursor: pointer; user-select: none; white-space: nowrap; max-width: 220px; }
+  .tab.active { background: var(--tab-active); color: var(--fg); box-shadow: inset 0 2px var(--accent); }
+  /* A tab's own colour, set from the right-click menu: a tint plus the top line. */
+  .tab.colored { background: color-mix(in srgb, var(--tab-color) 30%, var(--tab));
+    box-shadow: inset 0 3px var(--tab-color); }
+  .tab.colored.active { background: color-mix(in srgb, var(--tab-color) 45%, var(--tab-active)); color: #fff; }
+  .tab .label { overflow: hidden; text-overflow: ellipsis; }
+  .tab .close { border: 0; background: none; color: inherit; font-size: 14px; line-height: 1;
+    padding: 2px 4px; border-radius: 4px; cursor: pointer; opacity: .6; }
+  .tab .close:hover { opacity: 1; background: #ffffff1a; }
+  .tab input { width: 120px; font: inherit; color: var(--fg); background: #000;
+    border: 1px solid var(--accent); border-radius: 3px; padding: 1px 4px; }
+  #new { border: 0; background: none; color: var(--muted); font-size: 18px; padding: 0 12px; cursor: pointer; }
+  #new:hover { color: var(--fg); }
+  #colors { position: fixed; z-index: 10; display: flex; gap: 6px; padding: 6px;
+    background: var(--bar); border: 1px solid #333; border-radius: 6px; box-shadow: 0 4px 12px #000a; }
+  #colors[hidden] { display: none; }
+  #colors button { width: 18px; height: 18px; padding: 0; border: 1px solid #ffffff33;
+    border-radius: 50%; background: var(--swatch); cursor: pointer; }
+  #colors button:hover { outline: 2px solid var(--fg); outline-offset: 1px; }
+  #colors button.none { background: linear-gradient(135deg, transparent 45%, #e55 45% 55%, transparent 55%), var(--tab); }
+  #status { margin-left: auto; align-self: center; padding: 0 12px; color: var(--muted); white-space: nowrap; }
+
+  #terms { flex: 1; position: relative; min-height: 0; }
+  /* The frame is always there, so colouring a tab never changes the terminal's size. */
+  .term { position: absolute; inset: 0; padding: 4px 0 0 6px; border: 3px solid transparent;
+    touch-action: none; }
+  .term.colored { border-color: var(--tab-color); }
+  .term[hidden] { display: none; }
+  #empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="new" title="New tab (Alt+Shift+T)">+</button>
+  <span id="status"></span>
+</div>
+<div id="colors" hidden></div>
+<div id="terms"><div id="empty" hidden>No tabs. Press + to open one.</div></div>
+
+<script src="/vendor/xterm/lib/xterm.js"></script>
+<script src="/vendor/addon-fit/lib/addon-fit.js"></script>
+<script>
+const bar = document.getElementById('bar');
+const newBtn = document.getElementById('new');
+const terms = document.getElementById('terms');
+const empty = document.getElementById('empty');
+const statusEl = document.getElementById('status');
+const colorMenu = document.getElementById('colors');
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#57ab5a', '#39c5cf', '#4f8cc9', '#986ee2', '#d55fb4'];
+
+// id -> { id, name, color, tabEl, pane, term, fit, ws, retry }
+const tabs = new Map();
+let order = [];
+let activeId = null;
+
+const api = (path, opts = {}) =>
+  fetch('/api/tabs' + path, { headers: { 'Content-Type': 'application/json' }, ...opts })
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+
+function label(t) {
+  return t.name || `Tab ${order.indexOf(t.id) + 1}`;
+}
+
+function renderBar() {
+  // Move a tab only when it is out of place: re-inserting a node blurs whatever is
+  // focused inside it, which would end a rename every time sync() runs.
+  let prev = null;
+  for (const id of order) {
+    const t = tabs.get(id);
+    const slot = prev ? prev.nextSibling : bar.firstChild;
+    if (t.tabEl !== slot) bar.insertBefore(t.tabEl, slot);
+    prev = t.tabEl;
+    t.tabEl.classList.toggle('active', id === activeId);
+    const lab = t.tabEl.querySelector('.label');
+    if (lab) lab.textContent = label(t);
+    for (const el of [t.tabEl, t.pane]) {
+      el.classList.toggle('colored', !!t.color);
+      if (t.color) el.style.setProperty('--tab-color', t.color);
+    }
+  }
+  empty.hidden = order.length > 0;
+}
+
+function makeTab({ id, name, color }) {
+  const t = { id, name, color, term: null };
+  const el = document.createElement('div');
+  el.className = 'tab';
+  el.title = 'Double-click to rename, right-click to set a colour';
+  el.innerHTML = '<span class="label"></span><button class="close" title="Close tab (Alt+Shift+W)">×</button>';
+  el.addEventListener('click', e => { if (!e.target.closest('.close, input')) activate(id); });
+  el.querySelector('.close').addEventListener('click', () => closeTab(id));
+  el.addEventListener('dblclick', e => { if (!e.target.closest('.close')) startRename(t); });
+  el.addEventListener('contextmenu', e => { e.preventDefault(); openColors(t); });
+  t.tabEl = el;
+  t.pane = document.createElement('div');
+  t.pane.className = 'term';
+  t.pane.hidden = true;
+  terms.appendChild(t.pane);
+  tabs.set(id, t);
+  return t;
+}
+
+// Terminals are created on first view and kept alive while hidden, so switching
+// tabs keeps their scrollback for as long as the page is open.
+function ensureTerm(t) {
+  if (t.term) return;
+  t.term = new Terminal({
+    cursorBlink: true,
+    macOptionIsMeta: true,
+    scrollback: 10000,
+    fontFamily: 'Menlo, "SF Mono", Monaco, monospace',
+    fontSize: 13,
+    theme: { background: css('--bg'), foreground: css('--fg') },
+  });
+  t.fit = new FitAddon.FitAddon();
+  t.term.loadAddon(t.fit);
+  t.term.open(t.pane);
+  t.term.attachCustomKeyEventHandler(shortcut);
+  t.term.onData(d => send(t, new TextEncoder().encode(d)));
+  t.term.onBinary(d => send(t, Uint8Array.from(d, c => c.charCodeAt(0))));
+  t.term.onResize(({ cols, rows }) => sendResize(t, cols, rows));
+  // Copy on select. Done on mouseup rather than onSelectionChange: the fallback in
+  // copyText only works while the browser still counts the click as user activation.
+  t.pane.addEventListener('mouseup', () => t.term.hasSelection() && copyText(t, t.term.getSelection()));
+  touchScroll(t);
+  connect(t);
+}
+
+// xterm.js 6 does not scroll on touch, so turn a one-finger vertical swipe into
+// scrolling: scrollback on the normal screen, and wheel events on the alternate
+// one, which xterm sends on as mouse reports or arrow keys like a real wheel.
+function touchScroll(t) {
+  const screen = t.pane.querySelector('.xterm-screen');
+  let lastY = null, acc = 0;
+  t.pane.addEventListener('touchstart', e => {
+    lastY = e.touches.length === 1 ? e.touches[0].clientY : null;
+    acc = 0;
+  }, { passive: true });
+  t.pane.addEventListener('touchmove', e => {
+    if (lastY === null || e.touches.length !== 1) return;
+    const { clientX, clientY } = e.touches[0];
+    acc += lastY - clientY;
+    lastY = clientY;
+    const rowH = screen.clientHeight / t.term.rows;
+    const n = Math.trunc(acc / rowH);
+    if (!n) return;
+    acc -= n * rowH;
+    e.preventDefault();
+    if (t.term.buffer.active.type === 'normal') { t.term.scrollLines(n); return; }
+    for (let i = 0; i < Math.abs(n); i++) {
+      screen.dispatchEvent(new WheelEvent('wheel', {
+        deltaY: Math.sign(n) * rowH, deltaMode: 0, clientX, clientY, bubbles: true, cancelable: true,
+      }));
+    }
+  }, { passive: false });
+  t.pane.addEventListener('touchend', () => { lastY = null; });
+}
+
+function send(t, bytes) {
+  if (t.ws?.readyState === WebSocket.OPEN) t.ws.send(bytes);
+}
+
+function sendResize(t, cols, rows) {
+  if (t.ws?.readyState === WebSocket.OPEN) t.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+}
+
+function connect(t) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws/${t.id}`);
+  ws.binaryType = 'arraybuffer';
+  t.ws = ws;
+  ws.onopen = () => {
+    t.retry = 0;
+    // The server replays the tab's recent output first; start from a clean screen.
+    t.term.reset();
+    if (t.id === activeId) {
+      t.fit.fit();
+      sendResize(t, t.term.cols, t.term.rows);
+    }
+  };
+  ws.onmessage = e => t.term.write(new Uint8Array(e.data));
+  ws.onclose = e => {
+    if (t.ws !== ws || !tabs.has(t.id)) return;
+    if (e.code === 4000) { removeTab(t.id); return; }  // shell exited
+    // Server restarted or the network dropped: the dtach session is still there.
+    t.term.write('\r\n\x1b[2m[disconnected, reconnecting…]\x1b[0m\r\n');
+    t.retry = Math.min((t.retry || 0) + 1, 5);
+    setTimeout(() => tabs.has(t.id) && connect(t), 500 * t.retry);
+  };
+}
+
+function activate(id) {
+  if (!tabs.has(id)) return;
+  activeId = id;
+  for (const t of tabs.values()) t.pane.hidden = t.id !== id;
+  const t = tabs.get(id);
+  ensureTerm(t);
+  t.fit.fit();
+  // Every browser shares one pty per tab, so the one looking at it claims its size.
+  sendResize(t, t.term.cols, t.term.rows);
+  t.term.focus();
+  renderBar();
+  try { localStorage.setItem('xterm-web.active', id); } catch {}
+}
+
+function removeTab(id) {
+  const t = tabs.get(id);
+  if (!t) return;
+  tabs.delete(id);
+  const idx = order.indexOf(id);
+  order = order.filter(x => x !== id);
+  t.ws?.close();
+  t.term?.dispose();
+  t.pane.remove();
+  t.tabEl.remove();
+  if (activeId === id) {
+    activeId = null;
+    const next = order[Math.min(idx, order.length - 1)];
+    if (next) activate(next);
+  }
+  renderBar();
+}
+
+async function newTab() {
+  const info = await api('', { method: 'POST' });
+  makeTab(info);
+  order.push(info.id);
+  activate(info.id);
+}
+
+async function closeTab(id) {
+  await api('/' + id, { method: 'DELETE' }).catch(() => {});
+  removeTab(id);
+}
+
+function startRename(t) {
+  const lab = t.tabEl.querySelector('.label');
+  if (!lab) return;
+  const input = document.createElement('input');
+  input.value = t.name;
+  input.placeholder = label(t);
+  lab.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async save => {
+    if (done) return;
+    done = true;
+    const span = document.createElement('span');
+    span.className = 'label';
+    input.replaceWith(span);
+    if (save && input.value.trim() !== t.name) {
+      const r = await api('/' + t.id, { method: 'PATCH', body: JSON.stringify({ name: input.value }) }).catch(() => null);
+      if (r) t.name = r.name;
+    }
+    renderBar();
+    t.term?.focus();
+  };
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') finish(true);
+    if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
+// Right-click menu of swatches; the colour is stored on the server, like the name,
+// so every browser shows it.
+function openColors(t) {
+  colorMenu.replaceChildren();
+  for (const c of [...COLORS, '']) {
+    const b = document.createElement('button');
+    b.title = c || 'No colour';
+    if (c) b.style.setProperty('--swatch', c); else b.className = 'none';
+    b.addEventListener('click', async () => {
+      closeColors();
+      const r = await api('/' + t.id, { method: 'PATCH', body: JSON.stringify({ color: c }) }).catch(() => null);
+      if (r && 'color' in r) t.color = r.color;
+      renderBar();
+    });
+    colorMenu.appendChild(b);
+  }
+  const r = t.tabEl.getBoundingClientRect();
+  colorMenu.style.left = Math.max(4, Math.min(r.left, innerWidth - 240)) + 'px';
+  colorMenu.style.top = r.bottom + 4 + 'px';
+  colorMenu.hidden = false;
+}
+
+function closeColors() {
+  if (colorMenu.hidden) return;
+  colorMenu.hidden = true;
+  tabs.get(activeId)?.term?.focus();
+}
+
+// navigator.clipboard only exists in a secure context (https or localhost); over
+// plain http on the LAN, fall back to execCommand on a throwaway textarea.
+function copyText(t, text) {
+  if (!text) return;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch {}
+  ta.remove();
+  t.term.focus();
+}
+
+// Alt+Shift shortcuts, matched on e.code so macOS Option symbols don't get in the way.
+function shortcut(e) {
+  if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyC') {
+    const t = activeId && tabs.get(activeId);
+    if (t?.term?.hasSelection()) copyText(t, t.term.getSelection());
+    e.preventDefault();
+    return false;
+  }
+  if (e.type !== 'keydown' || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return true;
+  const i = order.indexOf(activeId);
+  const go = n => order.length && activate(order[(n + order.length) % order.length]);
+  switch (e.code) {
+    case 'KeyT': newTab(); break;
+    case 'KeyW': if (activeId) closeTab(activeId); break;
+    case 'KeyR': if (activeId) startRename(tabs.get(activeId)); break;
+    case 'ArrowLeft': case 'BracketLeft': go(i - 1); break;
+    case 'ArrowRight': case 'BracketRight': go(i + 1); break;
+    default:
+      if (/^Digit[1-9]$/.test(e.code)) { go(Number(e.code.slice(5)) - 1); break; }
+      return true;
+  }
+  e.preventDefault();
+  return false;
+}
+
+// Keep the tab list in step with the server, so tabs opened or closed from
+// another browser show up here too.
+async function sync() {
+  let list;
+  try {
+    list = await api('');
+    // A server from before tab colours lists none, and saving one would clear the name.
+    statusEl.textContent = list.length && !('color' in list[0]) ? 'restart the server for tab colours' : '';
+  } catch {
+    statusEl.textContent = 'server unreachable';
+    return;
+  }
+  const live = new Set(list.map(x => x.id));
+  for (const id of [...tabs.keys()]) if (!live.has(id)) removeTab(id);
+  for (const info of list) {
+    const t = tabs.get(info.id) || makeTab(info);
+    t.name = info.name;
+    t.color = info.color || '';
+  }
+  order = list.map(x => x.id);
+  if (!activeId && order.length) {
+    let saved = null;
+    try { saved = localStorage.getItem('xterm-web.active'); } catch {}
+    activate(order.includes(saved) ? saved : order[0]);
+  }
+  renderBar();
+}
+
+newBtn.addEventListener('click', newTab);
+document.addEventListener('mousedown', e => { if (!colorMenu.contains(e.target)) closeColors(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeColors(); }, true);
+document.addEventListener('keydown', e => { if (shortcut(e) === false) e.stopPropagation(); });
+window.addEventListener('resize', () => activeId && tabs.get(activeId).fit?.fit());
+window.addEventListener('focus', () => {
+  const t = activeId && tabs.get(activeId);
+  if (t?.term) sendResize(t, t.term.cols, t.term.rows);
+});
+
+(async () => {
+  await sync();
+  if (!order.length) await newTab();
+  setInterval(sync, 2000);
+})();
+</script>
+</body>
+</html>

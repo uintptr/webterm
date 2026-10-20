@@ -1,0 +1,38 @@
+# systemd user unit for xterm-web.
+#
+#   (cd ~/.Misc/desktop/xterm-web && npm ci)   # xterm.js, served to the browser
+#   ln -s ~/.Misc/desktop/xterm-web/service/xterm-web.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now xterm-web
+#   journalctl --user -u xterm-web -f
+#
+# loginctl enable-linger $USER keeps it (and the tabs) running while logged out.
+
+[Unit]
+Description=xterm-web: tabbed web terminal on :1234, one dtach session per tab
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Absolute path required; %h expands to your home directory.
+ExecStart=%h/.Misc/desktop/xterm-web/server.py
+WorkingDirectory=%h
+Restart=always
+RestartSec=5
+# uv is needed to exec the script at all - the shebang is 'env -S uv run --script',
+# so a missing uv is status 127, not a Python error. Also the PATH new tabs start from.
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+# No auth: 0.0.0.0 is meant for a trusted VLAN. Narrow it to an interface address
+# (or 127.0.0.1) with a drop-in: systemctl --user edit xterm-web
+Environment=BIND=0.0.0.0
+Environment=PORT=1234
+# The tabs' shells are dtach masters the server forked, so they sit in this unit's
+# cgroup. Stop or restart only the server; the default would kill every tab with it.
+KillMode=process
+
+# No hardening on purpose: the whole point is a shell with full access to $HOME.
+
+[Install]
+WantedBy=default.target
