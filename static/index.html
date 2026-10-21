@@ -287,10 +287,14 @@ function startRename(t) {
     t.term?.focus();
   };
   input.addEventListener('keydown', e => {
+    // Enter or Escape inside an IME composition (e.g. picking an emoji) belongs to the IME.
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter') finish(true);
     if (e.key === 'Escape') finish(false);
   });
-  input.addEventListener('blur', () => finish(true));
+  // An OS emoji picker is a window of its own: focus comes back to the input once
+  // it closes, so only a blur within the page ends the rename.
+  input.addEventListener('blur', () => { if (document.hasFocus()) finish(true); });
 }
 
 // Right-click menu of swatches; the colour is stored on the server, like the name,

@@ -54,7 +54,7 @@ def color_path(tab_id: str) -> Path:
 
 
 def read_meta(path: Path) -> str:
-    return path.read_text().strip() if path.exists() else ""
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
 
 def forget(tab_id: str) -> None:
@@ -234,7 +234,7 @@ async def api_update(request: web.Request) -> web.Response:
     tab_id = valid_id(request)
     body = await request.json()
     if "name" in body:
-        name_path(tab_id).write_text(str(body["name"]).strip()[:64])
+        name_path(tab_id).write_text(str(body["name"]).strip()[:64], encoding="utf-8")
     if "color" in body:
         color = str(body["color"]).strip().lower()
         if color and not COLOR.match(color):
