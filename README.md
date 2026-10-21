@@ -7,6 +7,7 @@ meant for a trusted VLAN.
 npm ci                      # once: xterm.js, served to the browser from node_modules
 ./start.sh                  # http://<this-host>:7682 on every interface
 BIND=127.0.0.1 ./start.sh   # localhost only (PORT=… to change the port)
+ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others get 403
 ```
 
 `server.py` runs through a `uv run --script` shebang (aiohttp), and needs `dtach` on

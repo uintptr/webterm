@@ -12,6 +12,7 @@ restarting the server only detaches; closing the tab kills the session.
 
 import asyncio
 import fcntl
+import ipaddress
 import json
 import os
 import pwd
@@ -286,6 +287,28 @@ async def ws_attach(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+def allow_only(spec: str):
+    """Middleware refusing clients outside `spec`, a comma-separated list of IPs/CIDRs."""
+    try:
+        nets = [ipaddress.ip_network(part.strip()) for part in spec.split(",") if part.strip()]
+    except ValueError as e:
+        sys.exit(f"ALLOW: {e}")
+
+    @web.middleware
+    async def check(request: web.Request, handler):
+        try:
+            ip = ipaddress.ip_address(request.remote or "")
+        except ValueError:
+            raise web.HTTPForbidden()
+        # A dual-stack listener reports IPv4 clients as ::ffff:a.b.c.d.
+        ip = getattr(ip, "ipv4_mapped", None) or ip
+        if not any(ip in net for net in nets):
+            raise web.HTTPForbidden()
+        return await handler(request)
+
+    return check
+
+
 async def index(request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC / "index.html")
 
@@ -307,7 +330,8 @@ def main() -> None:
     if DTACH is None:
         sys.exit("dtach is missing: install it (e.g. `apt install dtach` or `brew install dtach`)")
     SESSIONS.mkdir(exist_ok=True)
-    app = web.Application()
+    allow = os.environ.get("ALLOW", "").strip()
+    app = web.Application(middlewares=[allow_only(allow)] if allow else [])
     app.on_startup.append(start_hubs)
     app.on_shutdown.append(stop_hubs)
     app.add_routes([
