@@ -44,6 +44,18 @@
     border-radius: 50%; background: var(--swatch); cursor: pointer; }
   #colors button:hover { outline: 2px solid var(--fg); outline-offset: 1px; }
   #colors button.none { background: linear-gradient(135deg, transparent 45%, #e55 45% 55%, transparent 55%), var(--tab); }
+  #confirm { padding: 0; color: var(--fg); background: var(--bar); border: 1px solid #333;
+    border-radius: 8px; box-shadow: 0 8px 24px #000c; max-width: min(360px, 90vw); }
+  #confirm::backdrop { background: #0008; }
+  #confirm form { padding: 16px; }
+  #confirm p { margin: 0 0 16px; line-height: 1.4; overflow-wrap: anywhere; }
+  #confirm .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+  #confirm button { font: inherit; color: var(--fg); background: var(--tab); border: 1px solid #333;
+    border-radius: 4px; padding: 5px 12px; cursor: pointer; }
+  #confirm button:hover { background: #2a2a2a; }
+  #confirm button.danger { background: #b33a35; border-color: #b33a35; color: #fff; }
+  #confirm button.danger:hover { background: #c94641; }
+  #confirm button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   #status { margin-left: auto; align-self: center; padding: 0 12px; color: var(--muted); white-space: nowrap; }
 
   #terms { flex: 1; position: relative; min-height: 0; }
@@ -61,6 +73,15 @@
   <span id="status"></span>
 </div>
 <div id="colors" hidden></div>
+<dialog id="confirm">
+  <form method="dialog">
+    <p></p>
+    <div class="buttons">
+      <button value="">Cancel</button>
+      <button value="ok" class="danger">Close tab</button>
+    </div>
+  </form>
+</dialog>
 <div id="terms"><div id="empty" hidden>No tabs. Press + to open one.</div></div>
 
 <script src="/vendor/xterm/lib/xterm.js"></script>
@@ -72,6 +93,7 @@ const terms = document.getElementById('terms');
 const empty = document.getElementById('empty');
 const statusEl = document.getElementById('status');
 const colorMenu = document.getElementById('colors');
+const confirmDlg = document.getElementById('confirm');
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#57ab5a', '#39c5cf', '#4f8cc9', '#986ee2', '#d55fb4'];
@@ -258,7 +280,25 @@ async function newTab() {
   activate(info.id);
 }
 
+// Closing a tab ends its shell, so ask first. Enter confirms, Escape or a click
+// outside the box cancels.
+function confirmClose(t) {
+  if (confirmDlg.open) return Promise.resolve(false);
+  confirmDlg.querySelector('p').textContent =
+    `Close “${label(t)}”? Its shell and everything running in it will be ended.`;
+  confirmDlg.returnValue = '';
+  confirmDlg.showModal();
+  confirmDlg.querySelector('.danger').focus();
+  return new Promise(resolve => confirmDlg.addEventListener('close',
+    () => resolve(confirmDlg.returnValue === 'ok'), { once: true }));
+}
+
 async function closeTab(id) {
+  const t = tabs.get(id);
+  if (!t || !await confirmClose(t)) {
+    tabs.get(activeId)?.term?.focus();
+    return;
+  }
   await api('/' + id, { method: 'DELETE' }).catch(() => {});
   removeTab(id);
 }
@@ -398,6 +438,7 @@ async function sync() {
 }
 
 newBtn.addEventListener('click', newTab);
+confirmDlg.addEventListener('click', e => { if (e.target === confirmDlg) confirmDlg.close(); });
 document.addEventListener('mousedown', e => { if (!colorMenu.contains(e.target)) closeColors(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeColors(); }, true);
 document.addEventListener('keydown', e => { if (shortcut(e) === false) e.stopPropagation(); });
