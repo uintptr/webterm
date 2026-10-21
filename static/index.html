@@ -107,6 +107,8 @@ function renderBar() {
     }
   }
   empty.hidden = order.length > 0;
+  const active = tabs.get(activeId);
+  document.title = active ? label(active) : 'xterm-web';
 }
 
 function makeTab({ id, name, color }) {
