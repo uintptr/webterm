@@ -441,7 +441,11 @@ newBtn.addEventListener('click', newTab);
 confirmDlg.addEventListener('click', e => { if (e.target === confirmDlg) confirmDlg.close(); });
 document.addEventListener('mousedown', e => { if (!colorMenu.contains(e.target)) closeColors(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeColors(); }, true);
-document.addEventListener('keydown', e => { if (shortcut(e) === false) e.stopPropagation(); });
+// For keys typed into a terminal, xterm has already run shortcut() and lets the event
+// bubble on, so only handle keys pressed elsewhere on the page.
+document.addEventListener('keydown', e => {
+  if (!e.target.closest?.('.xterm') && shortcut(e) === false) e.stopPropagation();
+});
 window.addEventListener('resize', () => activeId && tabs.get(activeId).fit?.fit());
 window.addEventListener('focus', () => {
   const t = activeId && tabs.get(activeId);
