@@ -31,6 +31,7 @@ from aiohttp import WSMsgType, web
 
 ROOT = Path(__file__).resolve().parent
 SESSIONS = ROOT / "sessions"
+ORDER = SESSIONS / "order.json"
 STATIC = ROOT / "static"
 XTERM = ROOT / "node_modules" / "@xterm"
 
@@ -63,6 +64,13 @@ def forget(tab_id: str) -> None:
     color_path(tab_id).unlink(missing_ok=True)
 
 
+def read_order() -> list[str]:
+    try:
+        return [str(x) for x in json.loads(ORDER.read_text(encoding="utf-8"))]
+    except (OSError, ValueError, TypeError):
+        return []
+
+
 def is_alive(path: Path) -> bool:
     """A dtach socket is live if something accepts on it; stale files are left by crashes."""
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -85,6 +93,9 @@ def list_tabs() -> list[dict[str, str]]:
         tabs.append({"id": tab_id,
                      "name": read_meta(name_path(tab_id)),
                      "color": read_meta(color_path(tab_id))})
+    # Tabs missing from the saved order (new ones) go last, in creation order.
+    rank = {tab_id: i for i, tab_id in enumerate(read_order())}
+    tabs.sort(key=lambda tab: rank.get(tab["id"], len(rank)))
     return tabs
 
 
@@ -245,6 +256,14 @@ async def api_update(request: web.Request) -> web.Response:
                               "color": read_meta(color_path(tab_id))})
 
 
+async def api_reorder(request: web.Request) -> web.Response:
+    """Set the tab order from {"order": [ids]}; tabs it leaves out go after the ones it lists."""
+    body = await request.json()
+    ids = [str(x) for x in body.get("order", []) if TAB_ID.match(str(x))]
+    ORDER.write_text(json.dumps(ids), encoding="utf-8")
+    return web.json_response(list_tabs())
+
+
 async def api_delete(request: web.Request) -> web.Response:
     tab_id = valid_id(request)
     # The detached master is the process started as `dtach -n .../<id>.sock`; killing it
@@ -338,6 +357,7 @@ def main() -> None:
         web.get("/", index),
         web.get("/api/tabs", api_list),
         web.post("/api/tabs", api_create),
+        web.put("/api/tabs", api_reorder),
         web.patch("/api/tabs/{id}", api_update),
         web.delete("/api/tabs/{id}", api_delete),
         web.get("/ws/{id}", ws_attach),

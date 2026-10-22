@@ -29,6 +29,8 @@
   .tab.colored { background: color-mix(in srgb, var(--tab-color) 30%, var(--tab));
     box-shadow: inset 0 3px var(--tab-color); }
   .tab.colored.active { background: color-mix(in srgb, var(--tab-color) 45%, var(--tab-active)); color: #fff; }
+  .tab.dragging { opacity: .6; }
+  body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
   .tab .label { overflow: hidden; text-overflow: ellipsis; }
   .tab .close { border: 0; background: none; color: inherit; font-size: 14px; line-height: 1;
     padding: 2px 4px; border-radius: 4px; cursor: pointer; opacity: .6; }
@@ -102,6 +104,10 @@ const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#57ab5a', '#39c5cf', '#4f8cc9'
 const tabs = new Map();
 let order = [];
 let activeId = null;
+// Bumped on every local reorder, so a sync() that was already in flight when the
+// tabs moved doesn't put back the old order.
+let orderVersion = 0;
+let dragging = false;
 
 const api = (path, opts = {}) =>
   fetch('/api/tabs' + path, { headers: { 'Content-Type': 'application/json' }, ...opts })
@@ -137,11 +143,12 @@ function makeTab({ id, name, color }) {
   const t = { id, name, color, term: null };
   const el = document.createElement('div');
   el.className = 'tab';
-  el.title = 'Double-click to rename, right-click to set a colour';
+  el.title = 'Drag to move, double-click to rename, right-click to set a colour';
   el.innerHTML = '<span class="label"></span><button class="close" title="Close tab (Alt+Shift+W)">×</button>';
   el.addEventListener('click', e => { if (!e.target.closest('.close, input')) activate(id); });
   el.querySelector('.close').addEventListener('click', () => closeTab(id));
   el.addEventListener('dblclick', e => { if (!e.target.closest('.close')) startRename(t); });
+  el.addEventListener('pointerdown', e => dragTab(t, e));
   el.addEventListener('contextmenu', e => { e.preventDefault(); openColors(t); });
   t.tabEl = el;
   t.pane = document.createElement('div');
@@ -303,6 +310,57 @@ async function closeTab(id) {
   removeTab(id);
 }
 
+// Put tab `id` at index `to` in this page only; saveOrder() sends it to the server.
+function moveTab(id, to) {
+  const others = order.filter(x => x !== id);
+  to = Math.max(0, Math.min(to, others.length));
+  order = [...others.slice(0, to), id, ...others.slice(to)];
+  orderVersion++;
+  renderBar();
+}
+
+function saveOrder() {
+  orderVersion++;
+  api('', { method: 'PUT', body: JSON.stringify({ order }) })
+    .catch(() => { statusEl.textContent = 'restart the server to reorder tabs'; });
+}
+
+// Drag a tab sideways to move it. Mouse and pen only: a finger on the bar scrolls it.
+// The listeners sit on the document, since moving the tab's node would drop a capture.
+function dragTab(t, e) {
+  if (e.button !== 0 || e.pointerType === 'touch' || e.target.closest('.close, input')) return;
+  const startX = e.clientX;
+  const before = order.join();
+  let moved = false;
+  const move = ev => {
+    if (!moved) {
+      if (Math.abs(ev.clientX - startX) < 5) return;
+      moved = dragging = true;
+      t.tabEl.classList.add('dragging');
+      document.body.classList.add('dragging-tab');
+    }
+    const to = order.filter(x => {
+      if (x === t.id) return false;
+      const r = tabs.get(x).tabEl.getBoundingClientRect();
+      return r.left + r.width / 2 < ev.clientX;
+    }).length;
+    if (order.indexOf(t.id) !== to) moveTab(t.id, to);
+  };
+  const up = () => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.removeEventListener('pointercancel', up);
+    if (!moved) return;
+    dragging = false;
+    t.tabEl.classList.remove('dragging');
+    document.body.classList.remove('dragging-tab');
+    if (tabs.has(t.id) && order.join() !== before) saveOrder();
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  document.addEventListener('pointercancel', up);
+}
+
 function startRename(t) {
   const lab = t.tabEl.querySelector('.label');
   if (!lab) return;
@@ -401,6 +459,8 @@ function shortcut(e) {
     case 'KeyR': if (activeId) startRename(tabs.get(activeId)); break;
     case 'ArrowLeft': case 'BracketLeft': go(i - 1); break;
     case 'ArrowRight': case 'BracketRight': go(i + 1); break;
+    case 'PageUp': if (activeId) { moveTab(activeId, i - 1); saveOrder(); } break;
+    case 'PageDown': if (activeId) { moveTab(activeId, i + 1); saveOrder(); } break;
     default:
       if (/^Digit[1-9]$/.test(e.code)) { go(Number(e.code.slice(5)) - 1); break; }
       return true;
@@ -413,6 +473,7 @@ function shortcut(e) {
 // another browser show up here too.
 async function sync() {
   let list;
+  const version = orderVersion;
   try {
     list = await api('');
     // A server from before tab colours lists none, and saving one would clear the name.
@@ -428,7 +489,8 @@ async function sync() {
     t.name = info.name;
     t.color = info.color || '';
   }
-  order = list.map(x => x.id);
+  if (!dragging && version === orderVersion) order = list.map(x => x.id);
+  else order = [...order.filter(id => tabs.has(id)), ...list.map(x => x.id).filter(id => !order.includes(id))];
   if (!activeId && order.length) {
     let saved = null;
     try { saved = localStorage.getItem('xterm-web.active'); } catch {}

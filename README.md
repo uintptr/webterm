@@ -22,7 +22,9 @@ ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others
 - Closing the browser, or restarting the server, only detaches: shells keep running.
 - One pty per tab means one size: the browser that last focused or resized the tab
   sets it.
-- `exit` in a tab, or its ×, ends that session.
+- `exit` in a tab, or its × (after a confirmation), ends that session.
+- Tabs can be dragged into a new order (mouse or pen), kept in `sessions/order.json`
+  so every browser shares it.
 - Selecting text with the mouse copies it to the clipboard. Over plain http this
   goes through `execCommand('copy')`, since `navigator.clipboard` needs https or
   localhost; copies requested by programs in the terminal (OSC 52) are ignored.
@@ -30,15 +32,17 @@ ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others
 
 ## Keys
 
-| keys            | action                          |
-| --------------- | ------------------------------- |
-| Alt+Shift+T     | new tab                         |
-| Alt+Shift+W     | close tab                       |
-| Alt+Shift+R     | rename tab (or double-click it) |
-| right-click tab | set the tab's colour            |
-| Alt+Shift+← / → | previous / next                 |
-| Alt+Shift+1…9   | go to tab N                     |
-| Ctrl+Shift+C    | copy the selection              |
+| keys                  | action                          |
+| --------------------- | ------------------------------- |
+| Alt+Shift+T           | new tab                         |
+| Alt+Shift+W           | close tab                       |
+| Alt+Shift+R           | rename tab (or double-click it) |
+| right-click tab       | set the tab's colour            |
+| Alt+Shift+← / →       | previous / next                 |
+| Alt+Shift+1…9         | go to tab N                     |
+| Alt+Shift+PgUp / PgDn | move the tab left / right       |
+| drag a tab            | move it                         |
+| Ctrl+Shift+C          | copy the selection              |
 
 ## Services
 
