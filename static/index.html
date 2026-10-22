@@ -59,6 +59,8 @@
   #confirm button.danger:hover { background: #c94641; }
   #confirm button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   #status { margin-left: auto; align-self: center; padding: 0 12px; color: var(--muted); white-space: nowrap; }
+  #commit { align-self: center; padding: 0 12px 0 0; color: var(--muted); white-space: nowrap;
+    font: 11px Menlo, "SF Mono", Monaco, monospace; }
 
   #terms { flex: 1; position: relative; min-height: 0; }
   /* The frame is always there, so colouring a tab never changes the terminal's size. */
@@ -73,6 +75,7 @@
 <div id="bar">
   <button id="new" title="New tab (Alt+Shift+T)">+</button>
   <span id="status"></span>
+  <span id="commit" title="Commit the server is running" hidden></span>
 </div>
 <div id="colors" hidden></div>
 <dialog id="confirm">
@@ -94,6 +97,7 @@ const newBtn = document.getElementById('new');
 const terms = document.getElementById('terms');
 const empty = document.getElementById('empty');
 const statusEl = document.getElementById('status');
+const commitEl = document.getElementById('commit');
 const colorMenu = document.getElementById('colors');
 const confirmDlg = document.getElementById('confirm');
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -111,7 +115,12 @@ let dragging = false;
 
 const api = (path, opts = {}) =>
   fetch('/api/tabs' + path, { headers: { 'Content-Type': 'application/json' }, ...opts })
-    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    .then(r => {
+      if (!r.ok) throw new Error(r.status);
+      const commit = r.headers.get('X-Commit');
+      if (commit !== null) { commitEl.textContent = commit; commitEl.hidden = !commit; }
+      return r.json();
+    });
 
 function label(t) {
   return t.name || `Tab ${order.indexOf(t.id) + 1}`;

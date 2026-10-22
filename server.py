@@ -42,6 +42,19 @@ TAB_ID = re.compile(r"^[0-9a-z]{1,32}$")
 COLOR = re.compile(r"^#[0-9a-f]{6}$")
 
 
+def git_commit() -> str:
+    """The checkout's commit, read once at startup: the code this server is running."""
+    try:
+        out = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short=8", "HEAD"],
+                             capture_output=True, text=True, timeout=5, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip()
+
+
+COMMIT = git_commit()
+
+
 def sock_path(tab_id: str) -> Path:
     return SESSIONS / f"{tab_id}.sock"
 
@@ -218,7 +231,8 @@ class Hub:
 
 
 async def api_list(request: web.Request) -> web.Response:
-    return web.json_response(list_tabs())
+    # The page polls this list, so the header shows it the new commit after a restart.
+    return web.json_response(list_tabs(), headers={"X-Commit": COMMIT})
 
 
 async def api_create(request: web.Request) -> web.Response:

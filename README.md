@@ -28,6 +28,7 @@ ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others
 - Selecting text with the mouse copies it to the clipboard. Over plain http this
   goes through `execCommand('copy')`, since `navigator.clipboard` needs https or
   localhost; copies requested by programs in the terminal (OSC 52) are ignored.
+- The right end of the tab bar shows the commit the server was started from.
 - From a local terminal: `dtach -a sessions/<id>.sock -r winch` (detach with `Ctrl \`).
 
 ## Keys
