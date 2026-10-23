@@ -432,21 +432,29 @@ function closeColors() {
   tabs.get(activeId)?.term?.focus();
 }
 
+// Linux and BSD desktops (X11, Wayland) also have PRIMARY, pasted with a middle click.
+const HAS_PRIMARY = /Linux|BSD/.test(navigator.platform) && !/Android/.test(navigator.userAgent);
+
 // navigator.clipboard only exists in a secure context (https or localhost); over
 // plain http on the LAN, fall back to execCommand on a throwaway textarea.
+// PRIMARY has no web API: the browser fills it from a text selection, and Firefox
+// skips selections made by script (xterm.js sets one with textarea.select()). It does
+// take execCommand('selectAll') in a focused textarea, which it treats as the user's.
 function copyText(t, text) {
   if (!text) return;
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).catch(() => {});
-    return;
-  }
+  const secure = navigator.clipboard && window.isSecureContext;
+  if (secure) navigator.clipboard.writeText(text).catch(() => {});
+  if (secure && !HAS_PRIMARY) return;
   const ta = document.createElement('textarea');
   ta.value = text;
-  ta.setAttribute('readonly', '');
+  ta.readOnly = !HAS_PRIMARY;  // keeps a phone's keyboard from popping up
   ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
   document.body.appendChild(ta);
-  ta.select();
-  try { document.execCommand('copy'); } catch {}
+  ta.focus();
+  try {
+    document.execCommand('selectAll');
+    if (!secure) document.execCommand('copy');
+  } catch {}
   ta.remove();
   t.term.focus();
 }
