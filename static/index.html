@@ -468,6 +468,13 @@ function shortcut(e) {
     e.preventDefault();
     return false;
   }
+  // Ctrl+K clears the screen and scrollback, like Cmd+K on macOS; the shell never sees it.
+  if (e.type === 'keydown' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyK') {
+    const t = activeId && tabs.get(activeId);
+    t?.term?.clear();
+    e.preventDefault();
+    return false;
+  }
   if (e.type !== 'keydown' || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return true;
   const i = order.indexOf(activeId);
   const go = n => order.length && activate(order[(n + order.length) % order.length]);

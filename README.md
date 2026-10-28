@@ -44,6 +44,7 @@ ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others
 | Alt+Shift+PgUp / PgDn | move the tab left / right       |
 | drag a tab            | move it                         |
 | Ctrl+Shift+C          | copy the selection              |
+| Ctrl+K                | clear the screen and scrollback |
 
 ## Services
 
