@@ -76,7 +76,7 @@
 <div id="bar">
   <button id="new" title="New tab (Alt+Shift+T)">+</button>
   <span id="status"></span>
-  <span id="commit" title="Commit the server is running" hidden></span>
+  <span id="commit" hidden></span>
 </div>
 <div id="colors" hidden></div>
 <dialog id="confirm">
@@ -119,7 +119,15 @@ const api = (path, opts = {}) =>
     .then(r => {
       if (!r.ok) throw new Error(r.status);
       const commit = r.headers.get('X-Commit');
-      if (commit !== null) { commitEl.textContent = commit; commitEl.hidden = !commit; }
+      if (commit !== null) {
+        // The page is the checkout's; X-Running is set when server.py needs a restart.
+        const running = r.headers.get('X-Running');
+        commitEl.textContent = running ? `${commit} *` : commit;
+        commitEl.title = running
+          ? `Checkout is at ${commit}, but the server is still running ${running}: restart it to pick up server.py`
+          : 'Commit the page and server are running';
+        commitEl.hidden = !commit;
+      }
       return r.json();
     });
 

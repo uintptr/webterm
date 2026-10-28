@@ -53,6 +53,39 @@ def git_commit() -> str:
 
 
 COMMIT = git_commit()
+# (checked at, checkout's commit, server.py changed since COMMIT), refreshed by checkout_head().
+_head = (0.0, COMMIT, False)
+
+
+async def git(*args: str) -> tuple[int, str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", str(ROOT), *args,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await asyncio.wait_for(proc.communicate(), 5)
+    except (OSError, asyncio.TimeoutError):
+        return -1, ""
+    return proc.returncode, out.decode().strip()
+
+
+async def checkout_head() -> tuple[str, bool]:
+    """The checkout's commit now, and whether server.py differs from the one running.
+
+    The page is read from disk on every request, so it follows the checkout without a
+    restart; only a change to server.py needs one. Checked at most every few seconds.
+    """
+    global _head
+    checked, head, stale = _head
+    if time.monotonic() - checked < 5:
+        return head, stale
+    code, new = await git("rev-parse", "--short=8", "HEAD")
+    if code == 0 and new != head:
+        head = new
+        # diff --quiet exits 1 when the file differs.
+        stale = bool(COMMIT) and head != COMMIT and \
+            (await git("diff", "--quiet", COMMIT, head, "--", "server.py"))[0] == 1
+    _head = (time.monotonic(), head, stale)
+    return head, stale
 
 
 def sock_path(tab_id: str) -> Path:
@@ -231,8 +264,13 @@ class Hub:
 
 
 async def api_list(request: web.Request) -> web.Response:
-    # The page polls this list, so the header shows it the new commit after a restart.
-    return web.json_response(list_tabs(), headers={"X-Commit": COMMIT})
+    # The page polls this list, so the header follows the checkout, and flags when
+    # server.py has changed under the running server.
+    head, stale = await checkout_head()
+    headers = {"X-Commit": head}
+    if stale:
+        headers["X-Running"] = COMMIT
+    return web.json_response(list_tabs(), headers=headers)
 
 
 async def api_create(request: web.Request) -> web.Response:
