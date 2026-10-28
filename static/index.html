@@ -13,6 +13,7 @@
     --tab-active: #000000;
     --fg: #e5e5e5;
     --muted: #8a8a8a;
+    --tab-fg: #6a6a6a;
     --accent: #4f8cc9;
   }
   html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg);
@@ -22,11 +23,11 @@
   #bar { display: flex; align-items: stretch; background: var(--bar); height: 34px;
     border-bottom: 1px solid #000; overflow-x: auto; flex: none; }
   .tab { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 12px;
-    background: var(--tab); color: var(--muted); border-right: 1px solid #000;
+    background: var(--tab); color: var(--tab-fg); border-right: 1px solid #000;
     cursor: pointer; user-select: none; white-space: nowrap; max-width: 220px; }
   .tab.active { background: var(--tab-active); color: var(--fg); box-shadow: inset 0 2px var(--accent); }
   /* A tab's own colour, set from the right-click menu: a tint plus the top line. */
-  .tab.colored { background: color-mix(in srgb, var(--tab-color) 30%, var(--tab));
+  .tab.colored { background: color-mix(in srgb, var(--tab-color) 22%, var(--tab));
     box-shadow: inset 0 3px var(--tab-color); }
   .tab.colored.active { background: color-mix(in srgb, var(--tab-color) 45%, var(--tab-active)); color: #fff; }
   .tab.dragging { opacity: .6; }
