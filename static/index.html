@@ -92,6 +92,7 @@
 
 <script src="/vendor/xterm/lib/xterm.js"></script>
 <script src="/vendor/addon-fit/lib/addon-fit.js"></script>
+<script src="/vendor/addon-unicode11/lib/addon-unicode11.js"></script>
 <script>
 const bar = document.getElementById('bar');
 const newBtn = document.getElementById('new');
@@ -188,9 +189,13 @@ function ensureTerm(t) {
     fontFamily: 'Menlo, "SF Mono", Monaco, monospace',
     fontSize: 13,
     theme: { background: css('--bg'), foreground: css('--fg') },
+    allowProposedApi: true,  // term.unicode, needed by the Unicode 11 addon
   });
   t.fit = new FitAddon.FitAddon();
   t.term.loadAddon(t.fit);
+  // The default Unicode 6 tables make emoji one cell wide, so only their left half shows.
+  t.term.loadAddon(new Unicode11Addon.Unicode11Addon());
+  t.term.unicode.activeVersion = '11';
   t.term.open(t.pane);
   t.term.attachCustomKeyEventHandler(shortcut);
   t.term.onData(d => send(t, new TextEncoder().encode(d)));
