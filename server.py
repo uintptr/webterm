@@ -53,6 +53,8 @@ def git_commit() -> str:
 
 
 COMMIT = git_commit()
+# The machine the shells run on, which the page puts in its title.
+HOSTNAME = socket.gethostname()
 # (checked at, checkout's commit, server.py changed since COMMIT), refreshed by checkout_head().
 _head = (0.0, COMMIT, False)
 
@@ -267,7 +269,7 @@ async def api_list(request: web.Request) -> web.Response:
     # The page polls this list, so the header follows the checkout, and flags when
     # server.py has changed under the running server.
     head, stale = await checkout_head()
-    headers = {"X-Commit": head}
+    headers = {"X-Commit": head, "X-Hostname": HOSTNAME}
     if stale:
         headers["X-Running"] = COMMIT
     return web.json_response(list_tabs(), headers=headers)

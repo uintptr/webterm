@@ -114,11 +114,14 @@ let activeId = null;
 // tabs moved doesn't put back the old order.
 let orderVersion = 0;
 let dragging = false;
+// The server's hostname, from X-Hostname, so the window title says which machine this is.
+let hostname = '';
 
 const api = (path, opts = {}) =>
   fetch('/api/tabs' + path, { headers: { 'Content-Type': 'application/json' }, ...opts })
     .then(r => {
       if (!r.ok) throw new Error(r.status);
+      hostname = r.headers.get('X-Hostname') || hostname;
       const commit = r.headers.get('X-Commit');
       if (commit !== null) {
         // The page is the checkout's; X-Running is set when server.py needs a restart.
@@ -155,7 +158,8 @@ function renderBar() {
   }
   empty.hidden = order.length > 0;
   const active = tabs.get(activeId);
-  document.title = active ? label(active) : 'xterm-web';
+  const title = active ? label(active) : 'xterm-web';
+  document.title = hostname ? `${hostname}::${title}` : title;
 }
 
 function makeTab({ id, name, color }) {
