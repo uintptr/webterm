@@ -114,14 +114,16 @@ let activeId = null;
 // tabs moved doesn't put back the old order.
 let orderVersion = 0;
 let dragging = false;
-// The server's hostname, from X-Hostname, so the window title says which machine this is.
-let hostname = '';
+// The host the page was reached by, so the window title says which machine this is:
+// lcmac.uintptr.ca -> lcmac. An IP address is kept whole.
+const hostname = /^[\d.]+$|:/.test(location.hostname)
+  ? location.hostname
+  : location.hostname.split('.')[0];
 
 const api = (path, opts = {}) =>
   fetch('/api/tabs' + path, { headers: { 'Content-Type': 'application/json' }, ...opts })
     .then(r => {
       if (!r.ok) throw new Error(r.status);
-      hostname = r.headers.get('X-Hostname') || hostname;
       const commit = r.headers.get('X-Commit');
       if (commit !== null) {
         // The page is the checkout's; X-Running is set when server.py needs a restart.
