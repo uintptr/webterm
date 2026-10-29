@@ -161,7 +161,7 @@ function renderBar() {
   empty.hidden = order.length > 0;
   const active = tabs.get(activeId);
   const title = active ? label(active) : 'xterm-web';
-  document.title = hostname ? `${hostname}::${title}` : title;
+  document.title = hostname ? `${hostname} ${title}` : title;
 }
 
 function makeTab({ id, name, color }) {
