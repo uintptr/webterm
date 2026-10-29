@@ -194,8 +194,11 @@ function ensureTerm(t) {
   t.fit = new FitAddon.FitAddon();
   t.term.loadAddon(t.fit);
   // The default Unicode 6 tables make emoji one cell wide, so only their left half shows.
-  t.term.loadAddon(new Unicode11Addon.Unicode11Addon());
-  t.term.unicode.activeVersion = '11';
+  // Guarded so a checkout that hasn't re-run npm since this addon was added still works.
+  if (window.Unicode11Addon) {
+    t.term.loadAddon(new Unicode11Addon.Unicode11Addon());
+    t.term.unicode.activeVersion = '11';
+  }
   t.term.open(t.pane);
   t.term.attachCustomKeyEventHandler(shortcut);
   t.term.onData(d => send(t, new TextEncoder().encode(d)));
