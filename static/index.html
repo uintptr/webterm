@@ -212,7 +212,16 @@ function ensureTerm(t) {
   t.term.onResize(({ cols, rows }) => sendResize(t, cols, rows));
   // Copy on select. Done on mouseup rather than onSelectionChange: the fallback in
   // copyText only works while the browser still counts the click as user activation.
-  t.pane.addEventListener('mouseup', () => t.term.hasSelection() && copyText(t, t.term.getSelection()));
+  // The mouseup is caught on the document, as xterm does, because a drag often ends
+  // outside the pane: past its right edge for whole lines, below it to scroll, or off
+  // the window. The mousedown is caught in the capture phase because a Shift-drag in
+  // an app with mouse reporting (vim, tmux) stops it before it bubbles to the pane.
+  t.pane.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    document.addEventListener('mouseup', () => {
+      if (t.term?.hasSelection()) copyText(t, t.term.getSelection());
+    }, { once: true });
+  }, true);
   touchScroll(t);
   connect(t);
 }
