@@ -206,7 +206,7 @@ function ensureTerm(t) {
     t.term.unicode.activeVersion = '11';
   }
   t.term.open(t.pane);
-  t.term.attachCustomKeyEventHandler(shortcut);
+  t.term.attachCustomKeyEventHandler(e => shortcut(e) && optionSymbol(t, e));
   t.term.onData(d => send(t, new TextEncoder().encode(d)));
   t.term.onBinary(d => send(t, Uint8Array.from(d, c => c.charCodeAt(0))));
   t.term.onResize(({ cols, rows }) => sendResize(t, cols, rows));
@@ -480,6 +480,18 @@ function copyText(t, text) {
   } catch {}
   ta.remove();
   t.term.focus();
+}
+
+// macOptionIsMeta turns Option+key into Meta, which swallows the ASCII symbols some
+// layouts type with Option (@ is Option+2 on Canadian French). Type those as text
+// instead; on a US layout Option+letter gives characters like ∫, so those stay Meta.
+const isMac = /Mac/.test(navigator.platform);
+function optionSymbol(t, e) {
+  if (!isMac || e.type !== 'keydown' || !e.altKey || e.ctrlKey || e.metaKey) return true;
+  if (!/^[!-\/:-@[-`{-~]$/.test(e.key)) return true;
+  t.term.input(e.key);
+  e.preventDefault();
+  return false;
 }
 
 // Alt+Shift shortcuts, matched on e.code so macOS Option symbols don't get in the way.
