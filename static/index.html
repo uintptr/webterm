@@ -104,7 +104,8 @@ const colorMenu = document.getElementById('colors');
 const confirmDlg = document.getElementById('confirm');
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#57ab5a', '#39c5cf', '#4f8cc9', '#986ee2', '#d55fb4'];
+const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#9cbf3b', '#57ab5a', '#3fb39a',
+                '#39c5cf', '#4f8cc9', '#6c6fdc', '#986ee2', '#d55fb4', '#e06c8c'];
 
 // id -> { id, name, color, tabEl, pane, term, fit, ws, retry }
 const tabs = new Map();
@@ -137,14 +138,33 @@ const api = (path, opts = {}) =>
       return r.json();
     });
 
-// A tab the user hasn't given a colour takes one from its name, so the same name
-// always gets the same colour. Unnamed tabs stay plain: "Tab 3" changes as tabs move.
-function tabColor(t) {
-  if (t.color) return t.color;
-  if (!t.name) return '';
-  let h = 0x811c9dc5;  // FNV-1a
-  for (const ch of t.name) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193);
-  return COLORS[(h >>> 0) % COLORS.length];
+// A tab the user hasn't given a colour takes one from its name. If another tab
+// already shows that colour it takes the next free one, so tabs only share a colour
+// once the palette runs out. Colours the user picked are claimed first, then the
+// rest in creation order (ids are timestamps), so a tab keeps its colour when tabs
+// are moved or opened after it. Tabs with the same name share a colour. Unnamed tabs
+// stay plain: "Tab 3" changes as tabs move.
+function autoColors() {
+  const colors = new Map();
+  const used = new Set([...tabs.values()].map(t => t.color).filter(Boolean));
+  const byName = new Map();
+  const auto = [...tabs.values()].filter(t => !t.color && t.name).sort((a, b) => a.id < b.id ? -1 : 1);
+  for (const t of auto) {
+    if (!byName.has(t.name)) {
+      let h = 0x811c9dc5;  // FNV-1a
+      for (const ch of t.name) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193);
+      const start = (h >>> 0) % COLORS.length;
+      let color = COLORS[start];
+      for (let i = 0; i < COLORS.length; i++) {
+        const c = COLORS[(start + i) % COLORS.length];
+        if (!used.has(c)) { color = c; break; }
+      }
+      used.add(color);
+      byName.set(t.name, color);
+    }
+    colors.set(t.id, byName.get(t.name));
+  }
+  return colors;
 }
 
 function label(t) {
@@ -155,6 +175,7 @@ function renderBar() {
   // Move a tab only when it is out of place: re-inserting a node blurs whatever is
   // focused inside it, which would end a rename every time sync() runs.
   let prev = null;
+  const auto = autoColors();
   for (const id of order) {
     const t = tabs.get(id);
     const slot = prev ? prev.nextSibling : bar.firstChild;
@@ -163,7 +184,7 @@ function renderBar() {
     t.tabEl.classList.toggle('active', id === activeId);
     const lab = t.tabEl.querySelector('.label');
     if (lab) lab.textContent = label(t);
-    const color = tabColor(t);
+    const color = t.color || auto.get(id) || '';
     for (const el of [t.tabEl, t.pane]) {
       el.classList.toggle('colored', !!color);
       if (color) el.style.setProperty('--tab-color', color);
@@ -464,7 +485,7 @@ function openColors(t) {
     colorMenu.appendChild(b);
   }
   const r = t.tabEl.getBoundingClientRect();
-  colorMenu.style.left = Math.max(4, Math.min(r.left, innerWidth - 240)) + 'px';
+  colorMenu.style.left = Math.max(4, Math.min(r.left, innerWidth - 330)) + 'px';
   colorMenu.style.top = r.bottom + 4 + 'px';
   colorMenu.hidden = false;
 }
