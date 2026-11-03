@@ -137,6 +137,16 @@ const api = (path, opts = {}) =>
       return r.json();
     });
 
+// A tab the user hasn't given a colour takes one from its name, so the same name
+// always gets the same colour. Unnamed tabs stay plain: "Tab 3" changes as tabs move.
+function tabColor(t) {
+  if (t.color) return t.color;
+  if (!t.name) return '';
+  let h = 0x811c9dc5;  // FNV-1a
+  for (const ch of t.name) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193);
+  return COLORS[(h >>> 0) % COLORS.length];
+}
+
 function label(t) {
   return t.name || `Tab ${order.indexOf(t.id) + 1}`;
 }
@@ -153,9 +163,10 @@ function renderBar() {
     t.tabEl.classList.toggle('active', id === activeId);
     const lab = t.tabEl.querySelector('.label');
     if (lab) lab.textContent = label(t);
+    const color = tabColor(t);
     for (const el of [t.tabEl, t.pane]) {
-      el.classList.toggle('colored', !!t.color);
-      if (t.color) el.style.setProperty('--tab-color', t.color);
+      el.classList.toggle('colored', !!color);
+      if (color) el.style.setProperty('--tab-color', color);
     }
   }
   empty.hidden = order.length > 0;
@@ -442,7 +453,7 @@ function openColors(t) {
   colorMenu.replaceChildren();
   for (const c of [...COLORS, '']) {
     const b = document.createElement('button');
-    b.title = c || 'No colour';
+    b.title = c || 'Automatic (from the name)';
     if (c) b.style.setProperty('--swatch', c); else b.className = 'none';
     b.addEventListener('click', async () => {
       closeColors();
