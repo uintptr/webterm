@@ -47,21 +47,47 @@
     border-radius: 50%; background: var(--swatch); cursor: pointer; }
   #colors button:hover { outline: 2px solid var(--fg); outline-offset: 1px; }
   #colors button.none { background: linear-gradient(135deg, transparent 45%, #e55 45% 55%, transparent 55%), var(--tab); }
-  #confirm { padding: 0; color: var(--fg); background: var(--bar); border: 1px solid #333;
+  dialog { padding: 0; color: var(--fg); background: var(--bar); border: 1px solid #333;
     border-radius: 8px; box-shadow: 0 8px 24px #000c; max-width: min(360px, 90vw); }
-  #confirm::backdrop { background: #0008; }
-  #confirm form { padding: 16px; }
-  #confirm p { margin: 0 0 16px; line-height: 1.4; overflow-wrap: anywhere; }
-  #confirm .buttons { display: flex; justify-content: flex-end; gap: 8px; }
-  #confirm button { font: inherit; color: var(--fg); background: var(--tab); border: 1px solid #333;
+  dialog::backdrop { background: #0008; }
+  dialog form { padding: 16px; }
+  dialog p { margin: 0 0 16px; line-height: 1.4; overflow-wrap: anywhere; }
+  dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+  dialog button { font: inherit; color: var(--fg); background: var(--tab); border: 1px solid #333;
     border-radius: 4px; padding: 5px 12px; cursor: pointer; }
-  #confirm button:hover { background: #2a2a2a; }
-  #confirm button.danger { background: #b33a35; border-color: #b33a35; color: #fff; }
-  #confirm button.danger:hover { background: #c94641; }
-  #confirm button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  dialog button:hover { background: #2a2a2a; }
+  dialog button.danger { background: #b33a35; border-color: #b33a35; color: #fff; }
+  dialog button.danger:hover { background: #c94641; }
+  dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #settings h2 { margin: 0 0 4px; font-size: 15px; }
+  #settings p { color: var(--muted); font-size: 12px; }
+  #settings label { display: flex; align-items: center; justify-content: space-between; gap: 24px;
+    margin: 0 0 12px; }
+  #settings select, #settings input { font: inherit; color: var(--fg); background: #000;
+    border: 1px solid #333; border-radius: 4px; padding: 3px 6px; width: 90px;
+    box-sizing: border-box; }
   #status { margin-left: auto; align-self: center; padding: 0 12px; color: var(--muted); white-space: nowrap; }
-  #commit { align-self: center; padding: 0 12px 0 0; color: var(--muted); white-space: nowrap;
+  #info { display: flex; align-items: center; flex: none; }
+  #commit { padding: 0 4px 0 0; color: var(--muted); white-space: nowrap;
     font: 11px Menlo, "SF Mono", Monaco, monospace; }
+  #gear { border: 0; background: none; color: var(--muted); font-size: 15px; padding: 0 10px 0 4px;
+    cursor: pointer; align-self: stretch; }
+  #gear:hover { color: var(--fg); }
+
+  /* Tabs down the left side instead of across the top. */
+  body.tabs-left { flex-direction: row; }
+  body.tabs-left #bar { flex-direction: column; width: 180px; height: auto; overflow: hidden auto;
+    border-bottom: 0; border-right: 1px solid #000; }
+  body.tabs-left .tab { flex: none; min-height: 30px; max-width: none; border-right: 0;
+    border-bottom: 1px solid #000; }
+  body.tabs-left .tab .label { flex: 1; }
+  body.tabs-left .tab.active { box-shadow: inset 2px 0 var(--accent); }
+  body.tabs-left .tab.colored { box-shadow: inset 3px 0 var(--tab-color); }
+  body.tabs-left #new { flex: none; padding: 4px 12px; text-align: left; }
+  body.tabs-left #status { margin: auto 0 0; align-self: stretch; white-space: normal; }
+  body.tabs-left #status:not(:empty) { padding: 6px 12px; }
+  body.tabs-left #info { justify-content: space-between; min-height: 30px; padding-left: 12px;
+    border-top: 1px solid #000; }
 
   #terms { flex: 1; position: relative; min-height: 0; }
   /* The frame is always there, so colouring a tab never changes the terminal's size. */
@@ -76,7 +102,10 @@
 <div id="bar">
   <button id="new" title="New tab (Alt+Shift+T)">+</button>
   <span id="status"></span>
-  <span id="commit" hidden></span>
+  <div id="info">
+    <span id="commit" hidden></span>
+    <button id="gear" title="Settings">⚙&#xFE0E;</button>
+  </div>
 </div>
 <div id="colors" hidden></div>
 <dialog id="confirm">
@@ -86,6 +115,19 @@
       <button value="">Cancel</button>
       <button value="ok" class="danger">Close tab</button>
     </div>
+  </form>
+</dialog>
+<dialog id="settings">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <p>Saved in this browser only.</p>
+    <label>Tab bar
+      <select name="tabs"><option value="top">Top</option><option value="left">Left</option></select>
+    </label>
+    <label>Font size
+      <input name="fontSize" type="number" min="8" max="32" step="1">
+    </label>
+    <div class="buttons"><button value="ok">Done</button></div>
   </form>
 </dialog>
 <div id="terms"><div id="empty" hidden>No tabs. Press + to open one.</div></div>
@@ -102,10 +144,54 @@ const statusEl = document.getElementById('status');
 const commitEl = document.getElementById('commit');
 const colorMenu = document.getElementById('colors');
 const confirmDlg = document.getElementById('confirm');
+const settingsDlg = document.getElementById('settings');
+const gearBtn = document.getElementById('gear');
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#9cbf3b', '#57ab5a', '#3fb39a',
                 '#39c5cf', '#4f8cc9', '#6c6fdc', '#986ee2', '#d55fb4', '#e06c8c'];
+
+// Per-browser preferences: tabs are shared by every browser, but where the tab bar
+// goes and how big the text is depend on the screen in front of you.
+const SETTINGS_KEY = 'xterm-web.settings';
+const DEFAULTS = { tabs: 'top', fontSize: 13 };
+let settings = loadSettings();
+
+function loadSettings() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch {}
+  return {
+    tabs: s.tabs === 'left' ? 'left' : 'top',
+    fontSize: Number.isInteger(s.fontSize) && s.fontSize >= 8 && s.fontSize <= 32 ? s.fontSize : DEFAULTS.fontSize,
+  };
+}
+
+function applySettings() {
+  document.body.classList.toggle('tabs-left', settings.tabs === 'left');
+  for (const t of tabs.values()) if (t.term) t.term.options.fontSize = settings.fontSize;
+  // Hidden terminals are fitted when they are next shown.
+  const t = activeId && tabs.get(activeId);
+  t?.fit?.fit();
+}
+
+function openSettings() {
+  const f = settingsDlg.querySelector('form');
+  f.tabs.value = settings.tabs;
+  f.fontSize.value = settings.fontSize;
+  settingsDlg.showModal();
+}
+
+function changeSetting(e) {
+  const { name, value } = e.target;
+  if (name === 'tabs') settings.tabs = value;
+  if (name === 'fontSize') {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 8 || n > 32) return;  // mid-edit, e.g. "1" on the way to "14"
+    settings.fontSize = n;
+  }
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+  applySettings();
+}
 
 // id -> { id, name, color, tabEl, pane, term, fit, ws, retry }
 const tabs = new Map();
@@ -225,7 +311,7 @@ function ensureTerm(t) {
     macOptionIsMeta: true,
     scrollback: 10000,
     fontFamily: 'Menlo, "SF Mono", Monaco, monospace',
-    fontSize: 13,
+    fontSize: settings.fontSize,
     theme: { background: css('--bg'), foreground: css('--fg') },
     allowProposedApi: true,  // term.unicode, needed by the Unicode 11 addon
   });
@@ -398,16 +484,18 @@ function saveOrder() {
     .catch(() => { statusEl.textContent = 'restart the server to reorder tabs'; });
 }
 
-// Drag a tab sideways to move it. Mouse and pen only: a finger on the bar scrolls it.
+// Drag a tab along the bar to move it. Mouse and pen only: a finger on the bar scrolls it.
 // The listeners sit on the document, since moving the tab's node would drop a capture.
 function dragTab(t, e) {
   if (e.button !== 0 || e.pointerType === 'touch' || e.target.closest('.close, input')) return;
-  const startX = e.clientX;
+  const vertical = settings.tabs === 'left';
+  const pos = ev => vertical ? ev.clientY : ev.clientX;
+  const start = pos(e);
   const before = order.join();
   let moved = false;
   const move = ev => {
     if (!moved) {
-      if (Math.abs(ev.clientX - startX) < 5) return;
+      if (Math.abs(pos(ev) - start) < 5) return;
       moved = dragging = true;
       t.tabEl.classList.add('dragging');
       document.body.classList.add('dragging-tab');
@@ -415,7 +503,7 @@ function dragTab(t, e) {
     const to = order.filter(x => {
       if (x === t.id) return false;
       const r = tabs.get(x).tabEl.getBoundingClientRect();
-      return r.left + r.width / 2 < ev.clientX;
+      return (vertical ? r.top + r.height / 2 : r.left + r.width / 2) < pos(ev);
     }).length;
     if (order.indexOf(t.id) !== to) moveTab(t.id, to);
   };
@@ -485,9 +573,12 @@ function openColors(t) {
     colorMenu.appendChild(b);
   }
   const r = t.tabEl.getBoundingClientRect();
-  colorMenu.style.left = Math.max(4, Math.min(r.left, innerWidth - 330)) + 'px';
-  colorMenu.style.top = r.bottom + 4 + 'px';
   colorMenu.hidden = false;
+  const vertical = settings.tabs === 'left';
+  const left = vertical ? r.right + 4 : r.left;
+  const top = vertical ? r.top : r.bottom + 4;
+  colorMenu.style.left = Math.max(4, Math.min(left, innerWidth - colorMenu.offsetWidth - 4)) + 'px';
+  colorMenu.style.top = Math.max(4, Math.min(top, innerHeight - colorMenu.offsetHeight - 4)) + 'px';
 }
 
 function closeColors() {
@@ -600,7 +691,15 @@ async function sync() {
 }
 
 newBtn.addEventListener('click', newTab);
-confirmDlg.addEventListener('click', e => { if (e.target === confirmDlg) confirmDlg.close(); });
+gearBtn.addEventListener('click', openSettings);
+settingsDlg.addEventListener('input', changeSetting);
+settingsDlg.addEventListener('close', () => tabs.get(activeId)?.term?.focus());
+// Another window of this browser changed them.
+window.addEventListener('storage', e => {
+  if (e.key === SETTINGS_KEY) { settings = loadSettings(); applySettings(); }
+});
+for (const dlg of [confirmDlg, settingsDlg])
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
 document.addEventListener('mousedown', e => { if (!colorMenu.contains(e.target)) closeColors(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeColors(); }, true);
 // For keys typed into a terminal, xterm has already run shortcut() and lets the event
@@ -608,12 +707,13 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeColors(
 document.addEventListener('keydown', e => {
   if (!e.target.closest?.('.xterm') && shortcut(e) === false) e.stopPropagation();
 });
-window.addEventListener('resize', () => activeId && tabs.get(activeId).fit?.fit());
+new ResizeObserver(() => activeId && tabs.get(activeId)?.fit?.fit()).observe(terms);
 window.addEventListener('focus', () => {
   const t = activeId && tabs.get(activeId);
   if (t?.term) sendResize(t, t.term.cols, t.term.rows);
 });
 
+applySettings();
 (async () => {
   await sync();
   if (!order.length) await newTab();
