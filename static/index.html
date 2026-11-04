@@ -154,14 +154,14 @@ const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#9cbf3b', '#57ab5a', '#3fb39a'
 // Per-browser preferences: tabs are shared by every browser, but where the tab bar
 // goes and how big the text is depend on the screen in front of you.
 const SETTINGS_KEY = 'xterm-web.settings';
-const DEFAULTS = { tabs: 'top', fontSize: 13 };
+const DEFAULTS = { tabs: 'left', fontSize: 13 };
 let settings = loadSettings();
 
 function loadSettings() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch {}
   return {
-    tabs: s.tabs === 'left' ? 'left' : 'top',
+    tabs: s.tabs === 'top' ? 'top' : DEFAULTS.tabs,
     fontSize: Number.isInteger(s.fontSize) && s.fontSize >= 8 && s.fontSize <= 32 ? s.fontSize : DEFAULTS.fontSize,
   };
 }
