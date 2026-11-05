@@ -29,8 +29,8 @@ ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others
   goes through `execCommand('copy')`, since `navigator.clipboard` needs https or
   localhost; copies requested by programs in the terminal (OSC 52) are ignored.
 - The end of the tab bar shows the commit the server was started from, and a ⚙ for
-  settings: the tab bar down the left side (the default) or across the top, and the
-  font size. These are kept per browser (localStorage), unlike tabs, since they
+  settings: the tab bar down the left side (the default; on phones, the top) or
+  across the top, and the font size. These are kept per browser (localStorage), unlike tabs, since they
   depend on the screen.
 - From a local terminal: `dtach -a sessions/<id>.sock -r winch` (detach with `Ctrl \`).
 
