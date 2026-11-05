@@ -70,8 +70,11 @@
   #info { display: flex; align-items: center; flex: none; }
   #commit { padding: 0 4px 0 0; color: var(--muted); white-space: nowrap;
     font: 11px Menlo, "SF Mono", Monaco, monospace; }
-  #gear { border: 0; background: none; color: var(--muted); font-size: 15px; padding: 0 10px 0 4px;
-    cursor: pointer; align-self: stretch; }
+  /* An SVG rather than ⚙: the glyph comes from whatever fallback font the system has,
+     whose metrics put it off the hash's centre line. */
+  #gear { display: flex; align-items: center; border: 0; background: none; color: var(--muted);
+    padding: 0 10px 0 4px; cursor: pointer; align-self: stretch; }
+  #gear svg { width: 14px; height: 14px; fill: currentColor; }
   #gear:hover { color: var(--fg); }
 
   /* Tabs down the left side instead of across the top. */
@@ -104,7 +107,7 @@
   <span id="status"></span>
   <div id="info">
     <span id="commit" hidden></span>
-    <button id="gear" title="Settings">⚙&#xFE0E;</button>
+    <button id="gear" title="Settings" aria-label="Settings"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M13.06 6.43L14.90 6.82L14.90 9.18L13.06 9.57L12.69 10.47L13.72 12.04L12.04 13.72L10.47 12.69L9.57 13.06L9.18 14.90L6.82 14.90L6.43 13.06L5.53 12.69L3.96 13.72L2.28 12.04L3.31 10.47L2.94 9.57L1.10 9.18L1.10 6.82L2.94 6.43L3.31 5.53L2.28 3.96L3.96 2.28L5.53 3.31L6.43 2.94L6.82 1.10L9.18 1.10L9.57 2.94L10.47 3.31L12.04 2.28L13.72 3.96L12.69 5.53ZM10.4 8a2.4 2.4 0 1 0-4.8 0 2.4 2.4 0 1 0 4.8 0Z"/></svg></button>
   </div>
 </div>
 <div id="colors" hidden></div>
