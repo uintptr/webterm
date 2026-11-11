@@ -71,7 +71,7 @@
   #colors button { width: 18px; height: 18px; padding: 0; border: 1px solid #ffffff33;
     border-radius: 50%; background: var(--swatch); cursor: pointer; }
   #colors button:hover { outline: 2px solid var(--fg); outline-offset: 1px; }
-  #colors { flex-wrap: wrap; max-width: 320px; }
+  #colors { flex-wrap: wrap; max-width: 380px; }
   #colors .actions { flex-basis: 100%; display: flex; gap: 4px; padding-top: 6px; border-top: 1px solid #333; }
   #colors .actions button { width: auto; height: auto; padding: 3px 8px; border: 1px solid #333;
     border-radius: 4px; background: var(--tab); color: var(--fg); font: inherit; font-size: 12px; }
@@ -218,6 +218,8 @@ const css = name => getComputedStyle(document.documentElement).getPropertyValue(
 
 const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#9cbf3b', '#57ab5a', '#3fb39a',
                 '#39c5cf', '#4f8cc9', '#6c6fdc', '#986ee2', '#d55fb4', '#e06c8c'];
+// White and black can be picked from the menu but are never handed out from a name.
+const PICKABLE = [...COLORS, '#e5e5e5', '#000000'];
 
 // Per-browser preferences: tabs are shared by every browser, but where the tab bar
 // goes and how big the text is depend on the screen in front of you.
@@ -868,7 +870,7 @@ function startRename(t) {
 // so every browser shows it.
 function openColors(t) {
   colorMenu.replaceChildren();
-  for (const c of [...COLORS, '']) {
+  for (const c of [...PICKABLE, '']) {
     const b = document.createElement('button');
     b.title = c || 'Automatic (from the name)';
     if (c) b.style.setProperty('--swatch', c); else b.className = 'none';
