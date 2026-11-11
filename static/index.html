@@ -110,7 +110,7 @@
 
   /* Tabs down the left side instead of across the top. */
   body.tabs-left { flex-direction: row; }
-  body.tabs-left #bar { flex-direction: column; width: 180px; height: auto; overflow: hidden auto;
+  body.tabs-left #bar { flex-direction: column; width: var(--sidebar-width, 180px); height: auto; overflow: hidden auto;
     border-bottom: 0; border-right: 1px solid #000; }
   body.tabs-left .tab { flex: none; min-height: 30px; max-width: none; border-right: 0;
     border-bottom: 1px solid #000; }
@@ -145,6 +145,16 @@
   body.tabs-left #info { justify-content: space-between; min-height: 30px; padding-left: 12px;
     border-top: 1px solid #000; }
 
+  /* Drag the sidebar's edge to resize it. The grab area straddles the border, wider
+     than it looks so it is easy to hit; double-click puts the default width back. */
+  #grip { display: none; }
+  body.tabs-left #grip { display: block; flex: none; position: relative; z-index: 5; width: 9px;
+    margin: 0 -5px 0 -4px; cursor: col-resize; touch-action: none; }
+  body.tabs-left #grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 3px;
+    background: var(--accent); opacity: 0; transition: opacity .15s; }
+  body.tabs-left #grip:hover::after, body.resizing-bar #grip::after { opacity: 1; transition-delay: .1s; }
+  body.resizing-bar, body.resizing-bar * { cursor: col-resize !important; user-select: none; }
+
   #terms { flex: 1; position: relative; min-height: 0; }
   /* The frame is always there, so colouring a tab never changes the terminal's size. */
   .term { position: absolute; inset: 0; padding: 4px 0 0 6px; border: 3px solid transparent;
@@ -163,6 +173,7 @@
     <button id="gear" title="Settings" aria-label="Settings"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M13.06 6.43L14.90 6.82L14.90 9.18L13.06 9.57L12.69 10.47L13.72 12.04L12.04 13.72L10.47 12.69L9.57 13.06L9.18 14.90L6.82 14.90L6.43 13.06L5.53 12.69L3.96 13.72L2.28 12.04L3.31 10.47L2.94 9.57L1.10 9.18L1.10 6.82L2.94 6.43L3.31 5.53L2.28 3.96L3.96 2.28L5.53 3.31L6.43 2.94L6.82 1.10L9.18 1.10L9.57 2.94L10.47 3.31L12.04 2.28L13.72 3.96L12.69 5.53ZM10.4 8a2.4 2.4 0 1 0-4.8 0 2.4 2.4 0 1 0 4.8 0Z"/></svg></button>
   </div>
 </div>
+<div id="grip" title="Drag to resize, double-click to reset"></div>
 <div id="colors" hidden></div>
 <dialog id="confirm">
   <form method="dialog">
@@ -202,6 +213,7 @@ const colorMenu = document.getElementById('colors');
 const confirmDlg = document.getElementById('confirm');
 const settingsDlg = document.getElementById('settings');
 const gearBtn = document.getElementById('gear');
+const grip = document.getElementById('grip');
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 const COLORS = ['#e5534b', '#e0823d', '#d4b83a', '#9cbf3b', '#57ab5a', '#3fb39a',
@@ -214,7 +226,8 @@ const SETTINGS_KEY = 'xterm-web.settings';
 // Judged by the screen's short side, so turning the phone doesn't flip it; tablets
 // are wider than 600px and keep the sidebar.
 const isPhone = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
-const DEFAULTS = { tabs: isPhone ? 'top' : 'left', fontSize: 13 };
+const DEFAULTS = { tabs: isPhone ? 'top' : 'left', fontSize: 13, sidebarWidth: 180 };
+const SIDEBAR_MIN = 100, SIDEBAR_MAX = 800;
 let settings = loadSettings();
 
 function loadSettings() {
@@ -223,11 +236,14 @@ function loadSettings() {
   return {
     tabs: s.tabs === 'top' || s.tabs === 'left' ? s.tabs : DEFAULTS.tabs,
     fontSize: Number.isInteger(s.fontSize) && s.fontSize >= 8 && s.fontSize <= 32 ? s.fontSize : DEFAULTS.fontSize,
+    sidebarWidth: Number.isInteger(s.sidebarWidth) && s.sidebarWidth >= SIDEBAR_MIN && s.sidebarWidth <= SIDEBAR_MAX
+      ? s.sidebarWidth : DEFAULTS.sidebarWidth,
   };
 }
 
 function applySettings() {
   document.body.classList.toggle('tabs-left', settings.tabs === 'left');
+  document.body.style.setProperty('--sidebar-width', settings.sidebarWidth + 'px');
   for (const t of tabs.values()) if (t.term) t.term.options.fontSize = settings.fontSize;
   // Hidden terminals are fitted when they are next shown.
   const t = activeId && tabs.get(activeId);
@@ -249,8 +265,36 @@ function changeSetting(e) {
     if (!Number.isInteger(n) || n < 8 || n > 32) return;  // mid-edit, e.g. "1" on the way to "14"
     settings.fontSize = n;
   }
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+  saveSettings();
   applySettings();
+}
+
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+}
+
+// Dragging the sidebar's edge. The terminal refits as it goes (the ResizeObserver on
+// #terms), but the width is only saved once it is let go. Always leave the terminal
+// some room, however narrow the window.
+function resizeBar(e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  grip.setPointerCapture(e.pointerId);
+  document.body.classList.add('resizing-bar');
+  const left = bar.getBoundingClientRect().left;
+  const move = ev => {
+    const max = Math.min(SIDEBAR_MAX, window.innerWidth - 200);
+    settings.sidebarWidth = Math.round(Math.max(SIDEBAR_MIN, Math.min(max, ev.clientX - left)));
+    document.body.style.setProperty('--sidebar-width', settings.sidebarWidth + 'px');
+  };
+  const end = () => {
+    grip.removeEventListener('pointermove', move);
+    document.body.classList.remove('resizing-bar');
+    saveSettings();
+    tabs.get(activeId)?.term?.focus();
+  };
+  grip.addEventListener('pointermove', move);
+  grip.addEventListener('lostpointercapture', end, { once: true });
 }
 
 // id -> { id, name, color, parent, tabEl, pane, term, fit, ws, retry }
@@ -984,6 +1028,12 @@ async function sync() {
 
 newBtn.addEventListener('click', newTab);
 gearBtn.addEventListener('click', openSettings);
+grip.addEventListener('pointerdown', resizeBar);
+grip.addEventListener('dblclick', () => {
+  settings.sidebarWidth = DEFAULTS.sidebarWidth;
+  saveSettings();
+  applySettings();
+});
 settingsDlg.addEventListener('input', changeSetting);
 settingsDlg.addEventListener('close', () => tabs.get(activeId)?.term?.focus());
 // Another window of this browser changed them.
