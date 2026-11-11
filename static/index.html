@@ -44,6 +44,9 @@
   .tab.child .label::before { content: "› "; opacity: .5; }
   /* A nested tab is tinted more faintly than its parent, which heads the group. */
   .tab.colored.child:not(.active) { background: color-mix(in srgb, var(--tab-color) 11%, var(--tab)); }
+  /* The rest of the active tab's tree (everything under the same top-level tab) isn't dimmed. */
+  .tab.kin:not(.active) { color: #c8c8c8; }
+  .tab.colored.kin:not(.active) { background: color-mix(in srgb, var(--tab-color) 26%, var(--tab)); }
   /* Across the top, nested tabs hang a step lower per level. */
   body:not(.tabs-left) .tab.child { margin-top: min(var(--depth) * 4px, 12px); }
   /* Where a dragged tab will land: a line before or after a tab, or a box to go inside it. */
@@ -368,6 +371,9 @@ function renderBar() {
   // focused inside it, which would end a rename every time sync() runs.
   let prev = null;
   const colors = tabColors();
+  // The top-level tab each tab is under, to light up the active tab's whole tree.
+  const rootOf = id => { while (tabs.get(id)?.parent) id = tabs.get(id).parent; return id; };
+  const activeRoot = activeId && rootOf(activeId);
   // The last tab under each parent ('' for the top level), for the tree lines.
   const lastOf = new Map(order.map(id => [tabs.get(id).parent, id]));
   for (const id of order) {
@@ -380,6 +386,7 @@ function renderBar() {
     const folded = parent && collapsed.has(id);
     t.tabEl.classList.toggle('parent', parent);
     t.tabEl.classList.toggle('child', !!t.parent);
+    t.tabEl.classList.toggle('kin', id !== activeId && rootOf(id) === activeRoot && hasChildren(activeRoot));
     t.tabEl.style.setProperty('--depth', depth(id));
     t.tabEl.hidden = isHidden(id);
     const twisty = t.tabEl.querySelector('.twisty');
