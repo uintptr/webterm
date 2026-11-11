@@ -42,6 +42,10 @@
   .tab .count:empty { display: none; }
   .tab.child { padding-left: 8px; }
   .tab.child .label::before { content: "› "; opacity: .5; }
+  /* A nested tab is tinted more faintly than its parent, which heads the group. */
+  .tab.colored.child:not(.active) { background: color-mix(in srgb, var(--tab-color) 11%, var(--tab)); }
+  /* Across the top, nested tabs hang a step lower per level. */
+  body:not(.tabs-left) .tab.child { margin-top: min(var(--depth) * 4px, 12px); }
   /* Where a dragged tab will land: a line before or after a tab, or a box to go inside it. */
   .tab { position: relative; }
   .tab.drop-before::after, .tab.drop-after::after { content: ""; position: absolute; top: 0; bottom: 0;
@@ -108,11 +112,26 @@
   body.tabs-left .tab { flex: none; min-height: 30px; max-width: none; border-right: 0;
     border-bottom: 1px solid #000; }
   body.tabs-left .tab .label { flex: 1; }
-  body.tabs-left .tab { padding-left: calc(4px + var(--depth, 0) * 14px); }
+  /* Down the side the whole tab is indented, colour strip and all, and the gap it
+     leaves is drawn like `tree`: one cell per level, its line under that level's
+     arrow. ├ for a tab with more after it at its level, └ for the last, and a │
+     carried down past an ancestor that has more after it. */
+  body.tabs-left { --indent: 20px; }
+  body.tabs-left .tab { padding-left: 4px; margin-left: calc(var(--depth, 0) * var(--indent)); }
+  .tab .tree { display: none; }
+  body.tabs-left .tab .tree { display: flex; position: absolute; top: 0; bottom: -1px; right: 100%;
+    pointer-events: none; --line: #fff; }
+  .tab .tree i { position: relative; width: var(--indent); }
+  .tab .tree i.v::before, .tab .tree i.t::before, .tab .tree i.l::before { content: ""; position: absolute;
+    left: 10px; top: 0; bottom: 0; width: 1px; background: var(--line); }
+  .tab .tree i.l::before { bottom: 50%; }
+  .tab .tree i.t::after, .tab .tree i.l::after { content: ""; position: absolute;
+    left: 10px; right: 0; top: 50%; height: 1px; background: var(--line); }
   body.tabs-left .tab:not(.parent) .twisty { display: block; visibility: hidden; }
   body.tabs-left .tab.child .label::before { content: none; }
   body.tabs-left .tab.drop-before::after, body.tabs-left .tab.drop-after::after {
-    left: calc(4px + var(--drop-depth, var(--depth, 0)) * 14px); right: 0; width: auto; height: 2px; }
+    left: calc(4px + (var(--drop-depth, var(--depth, 0)) - var(--depth, 0)) * var(--indent)); right: 0;
+    width: auto; height: 2px; }
   body.tabs-left .tab.drop-before::after { top: 0; bottom: auto; }
   body.tabs-left .tab.drop-after::after { top: auto; bottom: 0; }
   body.tabs-left .tab.active { box-shadow: inset 2px 0 var(--accent); }
@@ -349,6 +368,8 @@ function renderBar() {
   // focused inside it, which would end a rename every time sync() runs.
   let prev = null;
   const colors = tabColors();
+  // The last tab under each parent ('' for the top level), for the tree lines.
+  const lastOf = new Map(order.map(id => [tabs.get(id).parent, id]));
   for (const id of order) {
     const t = tabs.get(id);
     const slot = prev ? prev.nextSibling : bar.firstChild;
@@ -365,6 +386,18 @@ function renderBar() {
     twisty.textContent = folded ? '▸' : '▾';
     twisty.title = folded ? 'Show the tabs nested in this one' : 'Hide the tabs nested in this one';
     t.tabEl.querySelector('.count').textContent = folded ? subtree(id).length - 1 : '';
+    // One cell per level, for the tab's ancestors below the top level and then itself.
+    const chain = [];
+    for (let x = id; tabs.get(x)?.parent; x = tabs.get(x).parent) chain.unshift(x);
+    const cells = chain.map((x, j) => {
+      const last = lastOf.get(tabs.get(x).parent) === x;
+      return j < chain.length - 1 ? (last ? '' : 'v') : (last ? 'l' : 't');
+    });
+    const tree = t.tabEl.querySelector('.tree');
+    if (tree.dataset.cells !== cells.join()) {
+      tree.dataset.cells = cells.join();
+      tree.replaceChildren(...cells.map(c => Object.assign(document.createElement('i'), { className: c })));
+    }
     const lab = t.tabEl.querySelector('.label');
     if (lab) lab.textContent = label(t);
     const color = colors.get(id) || '';
@@ -384,7 +417,7 @@ function makeTab({ id, name, color, parent }) {
   const el = document.createElement('div');
   el.className = 'tab';
   el.title = 'Drag to move (onto a tab to nest it), double-click to rename, right-click for colour and nesting';
-  el.innerHTML = '<button class="twisty"></button><span class="label"></span><span class="count"></span>' +
+  el.innerHTML = '<span class="tree"></span><button class="twisty"></button><span class="label"></span><span class="count"></span>' +
     '<button class="close" title="Close tab (Alt+Shift+W)">×</button>';
   el.addEventListener('click', e => { if (!e.target.closest('.close, .twisty, input')) activate(id); });
   el.querySelector('.close').addEventListener('click', () => closeTab(id));
