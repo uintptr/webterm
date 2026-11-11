@@ -25,6 +25,11 @@ ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others
 - `exit` in a tab, or its × (after a confirmation), ends that session.
 - Tabs can be dragged into a new order (mouse or pen), kept in `sessions/order.json`
   so every browser shares it.
+- Tabs nest: drop a tab on the middle of another to put it inside, or near either end
+  to put it before or after. Its nested tabs move with it. A tab with nested tabs has
+  an arrow to fold them away (per browser), and nested tabs without a colour of their
+  own take their parent's. Closing a tab moves the tabs nested in it up a level. The
+  right-click menu can also nest, for touch screens, where tabs can't be dragged.
 - Selecting text with the mouse copies it to the clipboard. Over plain http this
   goes through `execCommand('copy')`, since `navigator.clipboard` needs https or
   localhost; copies requested by programs in the terminal (OSC 52) are ignored.
@@ -39,12 +44,14 @@ ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others
 | keys                  | action                          |
 | --------------------- | ------------------------------- |
 | Alt+Shift+T           | new tab                         |
+| Alt+Shift+N           | new tab nested in this one      |
 | Alt+Shift+W           | close tab                       |
 | Alt+Shift+R           | rename tab (or double-click it) |
-| right-click tab       | set the tab's colour            |
+| right-click tab       | colour, nesting                 |
 | Alt+Shift+← / →       | previous / next                 |
 | Alt+Shift+1…9         | go to tab N                     |
-| Alt+Shift+PgUp / PgDn | move the tab left / right       |
+| Alt+Shift+PgUp / PgDn | move the tab past its neighbour |
+| Alt+Shift+I / O       | nest in the tab above / unnest  |
 | drag a tab            | move it                         |
 | Ctrl+Shift+C          | copy the selection              |
 | Ctrl+K                | clear the screen and scrollback |

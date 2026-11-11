@@ -110,11 +110,34 @@ def forget(tab_id: str) -> None:
     color_path(tab_id).unlink(missing_ok=True)
 
 
-def read_order() -> list[str]:
+def read_order() -> tuple[list[str], dict[str, str]]:
+    """The saved tab order, and each nested tab's parent.
+
+    order.json is {"order": [ids], "parents": {id: parent id}}; one written before
+    nested tabs is a bare list of ids.
+    """
     try:
-        return [str(x) for x in json.loads(ORDER.read_text(encoding="utf-8"))]
-    except (OSError, ValueError, TypeError):
-        return []
+        data = json.loads(ORDER.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            data = {"order": data}
+        order = [str(x) for x in data.get("order") or []]
+        parents = {str(k): str(v) for k, v in (data.get("parents") or {}).items() if v}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return [], {}
+    return order, parents
+
+
+def write_order(order: list[str], parents: dict[str, str]) -> None:
+    ORDER.write_text(json.dumps({"order": order, "parents": parents}), encoding="utf-8")
+
+
+def is_under(tab_id: str, ancestor: str, parents: dict[str, str]) -> bool:
+    seen = set()
+    while (tab_id := parents.get(tab_id, "")) and tab_id not in seen:
+        if tab_id == ancestor:
+            return True
+        seen.add(tab_id)
+    return False
 
 
 def is_alive(path: Path) -> bool:
@@ -130,19 +153,50 @@ def is_alive(path: Path) -> bool:
 
 
 def list_tabs() -> list[dict[str, str]]:
-    tabs: list[dict[str, str]] = []
+    """Live tabs depth first, each child after its parent, with "parent" set ("" at the top)."""
+    tabs: dict[str, dict[str, str]] = {}
     for sock in sorted(SESSIONS.glob("*.sock")):
         tab_id = sock.stem
         if not is_alive(sock):
             forget(tab_id)
             continue
-        tabs.append({"id": tab_id,
-                     "name": read_meta(name_path(tab_id)),
-                     "color": read_meta(color_path(tab_id))})
+        tabs[tab_id] = {"id": tab_id,
+                        "name": read_meta(name_path(tab_id)),
+                        "color": read_meta(color_path(tab_id))}
+    order, parents = read_order()
     # Tabs missing from the saved order (new ones) go last, in creation order.
-    rank = {tab_id: i for i, tab_id in enumerate(read_order())}
-    tabs.sort(key=lambda tab: rank.get(tab["id"], len(rank)))
-    return tabs
+    rank = {tab_id: i for i, tab_id in enumerate(order)}
+    ranked = sorted(tabs, key=lambda tab_id: rank.get(tab_id, len(rank)))
+
+    def parent_of(tab_id: str) -> str:
+        # The children of a closed tab move up to the nearest ancestor still open.
+        seen = {tab_id}
+        parent = parents.get(tab_id, "")
+        while parent and parent not in tabs and parent not in seen:
+            seen.add(parent)
+            parent = parents.get(parent, "")
+        return "" if parent in seen else parent
+
+    children: dict[str, list[str]] = {}
+    for tab_id in ranked:
+        children.setdefault(parent_of(tab_id), []).append(tab_id)
+    result: list[dict[str, str]] = []
+
+    def add(tab_id: str, parent: str) -> None:
+        tab = tabs.pop(tab_id)
+        tab["parent"] = parent
+        result.append(tab)
+        for child in children.get(tab_id, []):
+            if child in tabs:
+                add(child, tab_id)
+
+    for tab_id in children.get("", []):
+        add(tab_id, "")
+    # A loop of parents never reaches the top: break it at its first tab.
+    for tab_id in ranked:
+        if tab_id in tabs:
+            add(tab_id, "")
+    return result
 
 
 def valid_id(request: web.Request) -> str:
@@ -274,6 +328,17 @@ async def api_list(request: web.Request) -> web.Response:
 
 
 async def api_create(request: web.Request) -> web.Response:
+    """Open a tab; {"parent": id} in the body opens it as that tab's last child."""
+    parent = ""
+    if request.can_read_body:
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            parent = str(body.get("parent") or "")
+    if parent and not (TAB_ID.match(parent) and is_alive(sock_path(parent))):
+        parent = ""
     # Hex milliseconds: unique enough, and sorting by id keeps creation order.
     tab_id = format(int(time.time() * 1000), "x")
     env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
@@ -289,7 +354,17 @@ async def api_create(request: web.Request) -> web.Response:
             break
         await asyncio.sleep(0.02)
     Hub.get(tab_id)
-    return web.json_response({"id": tab_id, "name": "", "color": ""})
+    if parent:
+        tabs = list_tabs()
+        order = [tab["id"] for tab in tabs if tab["id"] != tab_id]
+        parents = {tab["id"]: tab["parent"] for tab in tabs if tab["parent"]}
+        at = order.index(parent) + 1
+        while at < len(order) and is_under(order[at], parent, parents):
+            at += 1
+        order.insert(at, tab_id)
+        parents[tab_id] = parent
+        write_order(order, parents)
+    return web.json_response({"id": tab_id, "name": "", "color": "", "parent": parent})
 
 
 async def api_update(request: web.Request) -> web.Response:
@@ -309,10 +384,20 @@ async def api_update(request: web.Request) -> web.Response:
 
 
 async def api_reorder(request: web.Request) -> web.Response:
-    """Set the tab order from {"order": [ids]}; tabs it leaves out go after the ones it lists."""
+    """Set the tab order and nesting from {"order": [ids], "parents": {id: parent id}}.
+
+    Tabs the order leaves out go after the ones it lists. A body without "parents"
+    (a page from before nested tabs) leaves the nesting as it was.
+    """
     body = await request.json()
     ids = [str(x) for x in body.get("order", []) if TAB_ID.match(str(x))]
-    ORDER.write_text(json.dumps(ids), encoding="utf-8")
+    parents = body.get("parents")
+    if isinstance(parents, dict):
+        parents = {str(k): str(v) for k, v in parents.items()
+                   if TAB_ID.match(str(k)) and TAB_ID.match(str(v))}
+    else:
+        parents = read_order()[1]
+    write_order(ids, parents)
     return web.json_response(list_tabs())
 
 

@@ -30,7 +30,25 @@
   .tab.colored { background: color-mix(in srgb, var(--tab-color) 22%, var(--tab));
     box-shadow: inset 0 3px var(--tab-color); }
   .tab.colored.active { background: color-mix(in srgb, var(--tab-color) 45%, var(--tab-active)); color: #fff; }
+  .tab[hidden] { display: none; }
   .tab.dragging { opacity: .6; }
+  /* Nested tabs: an arrow folds a tab's children away. Across the top, children are
+     marked with a › instead of being indented. */
+  .tab .twisty { flex: none; width: 14px; margin-right: -4px; border: 0; padding: 0; background: none;
+    color: inherit; font-size: 10px; line-height: 1; cursor: pointer; opacity: .7; }
+  .tab .twisty:hover { opacity: 1; }
+  .tab:not(.parent) .twisty { display: none; }
+  .tab .count { flex: none; color: var(--muted); font-size: 11px; }
+  .tab .count:empty { display: none; }
+  .tab.child { padding-left: 8px; }
+  .tab.child .label::before { content: "› "; opacity: .5; }
+  /* Where a dragged tab will land: a line before or after a tab, or a box to go inside it. */
+  .tab { position: relative; }
+  .tab.drop-before::after, .tab.drop-after::after { content: ""; position: absolute; top: 0; bottom: 0;
+    width: 2px; background: var(--accent); pointer-events: none; }
+  .tab.drop-before::after { left: 0; }
+  .tab.drop-after::after { right: 0; }
+  .tab.drop-into { outline: 2px dashed var(--accent); outline-offset: -2px; }
   body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
   .tab .label { overflow: hidden; text-overflow: ellipsis; }
   .tab .close { border: 0; background: none; color: inherit; font-size: 14px; line-height: 1;
@@ -46,6 +64,12 @@
   #colors button { width: 18px; height: 18px; padding: 0; border: 1px solid #ffffff33;
     border-radius: 50%; background: var(--swatch); cursor: pointer; }
   #colors button:hover { outline: 2px solid var(--fg); outline-offset: 1px; }
+  #colors { flex-wrap: wrap; max-width: 320px; }
+  #colors .actions { flex-basis: 100%; display: flex; gap: 4px; padding-top: 6px; border-top: 1px solid #333; }
+  #colors .actions button { width: auto; height: auto; padding: 3px 8px; border: 1px solid #333;
+    border-radius: 4px; background: var(--tab); color: var(--fg); font: inherit; font-size: 12px; }
+  #colors .actions button:hover { outline: 0; background: #2a2a2a; }
+  #colors .actions button:disabled { opacity: .4; cursor: default; }
   #colors button.none { background: linear-gradient(135deg, transparent 45%, #e55 45% 55%, transparent 55%), var(--tab); }
   dialog { padding: 0; color: var(--fg); background: var(--bar); border: 1px solid #333;
     border-radius: 8px; box-shadow: 0 8px 24px #000c; max-width: min(360px, 90vw); }
@@ -84,6 +108,13 @@
   body.tabs-left .tab { flex: none; min-height: 30px; max-width: none; border-right: 0;
     border-bottom: 1px solid #000; }
   body.tabs-left .tab .label { flex: 1; }
+  body.tabs-left .tab { padding-left: calc(4px + var(--depth, 0) * 14px); }
+  body.tabs-left .tab:not(.parent) .twisty { display: block; visibility: hidden; }
+  body.tabs-left .tab.child .label::before { content: none; }
+  body.tabs-left .tab.drop-before::after, body.tabs-left .tab.drop-after::after {
+    left: calc(4px + var(--drop-depth, var(--depth, 0)) * 14px); right: 0; width: auto; height: 2px; }
+  body.tabs-left .tab.drop-before::after { top: 0; bottom: auto; }
+  body.tabs-left .tab.drop-after::after { top: auto; bottom: 0; }
   body.tabs-left .tab.active { box-shadow: inset 2px 0 var(--accent); }
   body.tabs-left .tab.colored { box-shadow: inset 3px 0 var(--tab-color); }
   body.tabs-left #new { flex: none; padding: 4px 12px; text-align: left; }
@@ -200,9 +231,41 @@ function changeSetting(e) {
   applySettings();
 }
 
-// id -> { id, name, color, tabEl, pane, term, fit, ws, retry }
+// id -> { id, name, color, parent, tabEl, pane, term, fit, ws, retry }
 const tabs = new Map();
+// Depth first: every tab comes after its parent, followed by its own children.
 let order = [];
+// Tabs whose children are folded away, kept per browser like the settings.
+const COLLAPSED_KEY = 'xterm-web.collapsed';
+let collapsed = new Set();
+try { collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY)) || []); } catch {}
+function saveCollapsed() {
+  try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed])); } catch {}
+}
+function isUnder(id, ancestor) {
+  for (let p = tabs.get(id)?.parent; p; p = tabs.get(p)?.parent) if (p === ancestor) return true;
+  return false;
+}
+function depth(id) {
+  let n = 0;
+  for (let p = tabs.get(id)?.parent; p && tabs.has(p); p = tabs.get(p).parent) n++;
+  return n;
+}
+// A tab and everything nested in it: a run of `order`, since it is depth first.
+function subtree(id) {
+  const i = order.indexOf(id);
+  if (i < 0) return [];
+  let j = i + 1;
+  while (j < order.length && isUnder(order[j], id)) j++;
+  return order.slice(i, j);
+}
+const hasChildren = id => order.some(x => tabs.get(x).parent === id);
+const isHidden = id => {
+  for (let p = tabs.get(id)?.parent; p; p = tabs.get(p)?.parent) if (collapsed.has(p)) return true;
+  return false;
+};
+const visibleOrder = () => order.filter(id => !isHidden(id));
+const siblings = id => order.filter(x => tabs.get(x).parent === tabs.get(id).parent);
 let activeId = null;
 // Bumped on every local reorder, so a sync() that was already in flight when the
 // tabs moved doesn't put back the old order.
@@ -231,17 +294,34 @@ const api = (path, opts = {}) =>
       return r.json();
     });
 
-// A tab the user hasn't given a colour takes one from its name. If another tab
+// A nested tab the user hasn't given a colour shows its parent's, so a group of tabs
+// reads as one. Otherwise a tab the user hasn't given a colour takes one from its name. If another tab
 // already shows that colour it takes the next free one, so tabs only share a colour
 // once the palette runs out. Colours the user picked are claimed first, then the
 // rest in creation order (ids are timestamps), so a tab keeps its colour when tabs
 // are moved or opened after it. Tabs with the same name share a colour. Unnamed tabs
 // stay plain: "Tab 3" changes as tabs move.
-function autoColors() {
+function tabColors() {
+  // How each tab gets its colour; parents come first in `order`, so theirs is known.
+  const how = new Map();
+  for (const id of order) {
+    const t = tabs.get(id);
+    how.set(id, t.color ? 'own' : how.get(t.parent) ? 'parent' : t.name ? 'name' : '');
+  }
+  const auto = autoColors([...tabs.values()].filter(t => how.get(t.id) === 'name'));
+  const colors = new Map();
+  for (const id of order) {
+    const t = tabs.get(id);
+    const h = how.get(id);
+    colors.set(id, h === 'own' ? t.color : h === 'parent' ? colors.get(t.parent) : auto.get(id) || '');
+  }
+  return colors;
+}
+function autoColors(named) {
   const colors = new Map();
   const used = new Set([...tabs.values()].map(t => t.color).filter(Boolean));
   const byName = new Map();
-  const auto = [...tabs.values()].filter(t => !t.color && t.name).sort((a, b) => a.id < b.id ? -1 : 1);
+  const auto = named.sort((a, b) => a.id < b.id ? -1 : 1);
   for (const t of auto) {
     if (!byName.has(t.name)) {
       let h = 0x811c9dc5;  // FNV-1a
@@ -268,16 +348,26 @@ function renderBar() {
   // Move a tab only when it is out of place: re-inserting a node blurs whatever is
   // focused inside it, which would end a rename every time sync() runs.
   let prev = null;
-  const auto = autoColors();
+  const colors = tabColors();
   for (const id of order) {
     const t = tabs.get(id);
     const slot = prev ? prev.nextSibling : bar.firstChild;
     if (t.tabEl !== slot) bar.insertBefore(t.tabEl, slot);
     prev = t.tabEl;
     t.tabEl.classList.toggle('active', id === activeId);
+    const parent = hasChildren(id);
+    const folded = parent && collapsed.has(id);
+    t.tabEl.classList.toggle('parent', parent);
+    t.tabEl.classList.toggle('child', !!t.parent);
+    t.tabEl.style.setProperty('--depth', depth(id));
+    t.tabEl.hidden = isHidden(id);
+    const twisty = t.tabEl.querySelector('.twisty');
+    twisty.textContent = folded ? '▸' : '▾';
+    twisty.title = folded ? 'Show the tabs nested in this one' : 'Hide the tabs nested in this one';
+    t.tabEl.querySelector('.count').textContent = folded ? subtree(id).length - 1 : '';
     const lab = t.tabEl.querySelector('.label');
     if (lab) lab.textContent = label(t);
-    const color = t.color || auto.get(id) || '';
+    const color = colors.get(id) || '';
     for (const el of [t.tabEl, t.pane]) {
       el.classList.toggle('colored', !!color);
       if (color) el.style.setProperty('--tab-color', color);
@@ -289,15 +379,17 @@ function renderBar() {
   document.title = hostname ? `${hostname} ${title}` : title;
 }
 
-function makeTab({ id, name, color }) {
-  const t = { id, name, color, term: null };
+function makeTab({ id, name, color, parent }) {
+  const t = { id, name, color, parent: parent || '', term: null };
   const el = document.createElement('div');
   el.className = 'tab';
-  el.title = 'Drag to move, double-click to rename, right-click to set a colour';
-  el.innerHTML = '<span class="label"></span><button class="close" title="Close tab (Alt+Shift+W)">×</button>';
-  el.addEventListener('click', e => { if (!e.target.closest('.close, input')) activate(id); });
+  el.title = 'Drag to move (onto a tab to nest it), double-click to rename, right-click for colour and nesting';
+  el.innerHTML = '<button class="twisty"></button><span class="label"></span><span class="count"></span>' +
+    '<button class="close" title="Close tab (Alt+Shift+W)">×</button>';
+  el.addEventListener('click', e => { if (!e.target.closest('.close, .twisty, input')) activate(id); });
   el.querySelector('.close').addEventListener('click', () => closeTab(id));
-  el.addEventListener('dblclick', e => { if (!e.target.closest('.close')) startRename(t); });
+  el.querySelector('.twisty').addEventListener('click', () => toggleCollapse(id));
+  el.addEventListener('dblclick', e => { if (!e.target.closest('.close, .twisty')) startRename(t); });
   el.addEventListener('pointerdown', e => dragTab(t, e));
   el.addEventListener('contextmenu', e => { e.preventDefault(); openColors(t); });
   t.tabEl = el;
@@ -416,6 +508,8 @@ function connect(t) {
 
 function activate(id) {
   if (!tabs.has(id)) return;
+  // Unfold whatever the tab is nested in, so the active tab is always in view.
+  for (let p = tabs.get(id).parent; p; p = tabs.get(p)?.parent) if (collapsed.delete(p)) saveCollapsed();
   activeId = id;
   for (const t of tabs.values()) t.pane.hidden = t.id !== id;
   const t = tabs.get(id);
@@ -431,6 +525,9 @@ function activate(id) {
 function removeTab(id) {
   const t = tabs.get(id);
   if (!t) return;
+  // Its children move up into its place, as the server does.
+  for (const x of tabs.values()) if (x.parent === id) x.parent = t.parent;
+  if (collapsed.delete(id)) saveCollapsed();
   tabs.delete(id);
   const idx = order.indexOf(id);
   order = order.filter(x => x !== id);
@@ -440,17 +537,56 @@ function removeTab(id) {
   t.tabEl.remove();
   if (activeId === id) {
     activeId = null;
-    const next = order[Math.min(idx, order.length - 1)];
+    const next = order.slice(idx).find(x => !isHidden(x)) ?? order.slice(0, idx).reverse().find(x => !isHidden(x));
     if (next) activate(next);
   }
   renderBar();
 }
 
-async function newTab() {
-  const info = await api('', { method: 'POST' });
-  makeTab(info);
-  order.push(info.id);
-  activate(info.id);
+// Opens a tab at the end, or as the last tab nested in `parent`.
+async function newTab(parent = '') {
+  const info = await api('', { method: 'POST', body: JSON.stringify(parent ? { parent } : {}) });
+  const t = makeTab(info);
+  if (!tabs.has(t.parent)) t.parent = '';  // a server from before nested tabs
+  if (t.parent) {
+    const sub = subtree(t.parent);
+    order.splice(order.indexOf(sub[sub.length - 1]) + 1, 0, t.id);
+    orderVersion++;
+  } else {
+    order.push(t.id);
+  }
+  activate(t.id);
+}
+
+function toggleCollapse(id) {
+  if (collapsed.has(id)) collapsed.delete(id);
+  else collapsed.add(id);
+  saveCollapsed();
+  // Folding away the active tab makes the tab it is folded into the active one.
+  if (activeId && isHidden(activeId)) activate(id);
+  renderBar();
+  tabs.get(activeId)?.term?.focus();
+}
+
+// `ids` put depth first by the tabs' parents, keeping siblings in the order given.
+function treeOrder(ids) {
+  const kids = new Map(), out = [], seen = new Set();
+  const set = new Set(ids);
+  for (const id of ids) {
+    const p = set.has(tabs.get(id).parent) ? tabs.get(id).parent : '';
+    if (!kids.has(p)) kids.set(p, []);
+    kids.get(p).push(id);
+  }
+  const add = id => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+    for (const k of kids.get(id) || []) add(k);
+  };
+  for (const id of kids.get('') || []) add(id);
+  // Only a loop of parents never reaches the top: break it.
+  for (const id of ids) if (!seen.has(id)) { tabs.get(id).parent = ''; add(id); }
+  return out;
 }
 
 // Closing a tab ends its shell, so ask first. Enter confirms, Escape or a click
@@ -458,7 +594,8 @@ async function newTab() {
 function confirmClose(t) {
   if (confirmDlg.open) return Promise.resolve(false);
   confirmDlg.querySelector('p').textContent =
-    `Close “${label(t)}”? Its shell and everything running in it will be ended.`;
+    `Close “${label(t)}”? Its shell and everything running in it will be ended.` +
+    (hasChildren(t.id) ? ' The tabs nested in it stay open and move up a level.' : '');
   confirmDlg.returnValue = '';
   confirmDlg.showModal();
   confirmDlg.querySelector('.danger').focus();
@@ -476,43 +613,121 @@ async function closeTab(id) {
   removeTab(id);
 }
 
-// Put tab `id` at index `to` in this page only; saveOrder() sends it to the server.
-function moveTab(id, to) {
-  const others = order.filter(x => x !== id);
-  to = Math.max(0, Math.min(to, others.length));
-  order = [...others.slice(0, to), id, ...others.slice(to)];
+// Move tab `id`, with everything nested in it, to just before or after `target` (as
+// its sibling), or into it as its first or last child. In this page only; saveOrder()
+// sends it to the server. Returns whether anything moved.
+function moveSubtree(id, target, where) {
+  if (!tabs.has(id) || !tabs.has(target) || id === target || isUnder(target, id)) return false;
+  const t = tabs.get(id);
+  const was = order.join() + '|' + t.parent;
+  const sub = subtree(id);
+  const rest = order.filter(x => !sub.includes(x));
+  let at;
+  if (where === 'before') at = rest.indexOf(target);
+  else if (where === 'first') at = rest.indexOf(target) + 1;
+  else {
+    const ts = subtree(target).filter(x => !sub.includes(x));
+    at = rest.indexOf(ts[ts.length - 1]) + 1;
+  }
+  order = [...rest.slice(0, at), ...sub, ...rest.slice(at)];
+  t.parent = where === 'into' || where === 'first' ? target : tabs.get(target).parent;
+  if (t.parent === target && collapsed.delete(target)) saveCollapsed();
+  if (order.join() + '|' + t.parent === was) return false;
   orderVersion++;
   renderBar();
+  return true;
+}
+
+// Alt+Shift+PgUp / PgDn: past the previous or next tab at the same level.
+function shiftTab(id, d) {
+  const sibs = siblings(id), j = sibs.indexOf(id) + d;
+  if (j >= 0 && j < sibs.length && moveSubtree(id, sibs[j], d < 0 ? 'before' : 'after')) saveOrder();
+}
+
+// Into the tab above it at the same level, or out to just after its parent.
+function indent(id) {
+  const sibs = siblings(id), i = sibs.indexOf(id);
+  if (i > 0 && moveSubtree(id, sibs[i - 1], 'into')) saveOrder();
+}
+
+function outdent(id) {
+  const p = tabs.get(id)?.parent;
+  if (p && moveSubtree(id, p, 'after')) saveOrder();
 }
 
 function saveOrder() {
   orderVersion++;
-  api('', { method: 'PUT', body: JSON.stringify({ order }) })
+  const parents = Object.fromEntries(order.filter(id => tabs.get(id).parent).map(id => [id, tabs.get(id).parent]));
+  api('', { method: 'PUT', body: JSON.stringify({ order, parents }) })
     .catch(() => { statusEl.textContent = 'restart the server to reorder tabs'; });
 }
 
-// Drag a tab along the bar to move it. Mouse and pen only: a finger on the bar scrolls it.
-// The listeners sit on the document, since moving the tab's node would drop a capture.
+// Drag a tab to move it, along with the tabs nested in it. Over the middle of another
+// tab it goes inside that one; near either end, before or after it. Mouse and pen
+// only: a finger on the bar scrolls it. The listeners sit on the document, so a drag
+// can end anywhere.
 function dragTab(t, e) {
-  if (e.button !== 0 || e.pointerType === 'touch' || e.target.closest('.close, input')) return;
+  if (e.button !== 0 || e.pointerType === 'touch' || e.target.closest('.close, .twisty, input')) return;
   const vertical = settings.tabs === 'left';
   const pos = ev => vertical ? ev.clientY : ev.clientX;
   const start = pos(e);
-  const before = order.join();
-  let moved = false;
+  const sub = subtree(t.id);
+  let moved = false, drop = null, marked = null;
+  // Where the pointer would drop the tab, as moveSubtree() takes it: { id, where }.
+  const target = ev => {
+    const p = pos(ev);
+    const ids = visibleOrder().filter(x => !sub.includes(x));
+    if (!ids.length) return null;
+    for (const id of ids) {
+      const r = tabs.get(id).tabEl.getBoundingClientRect();
+      const [a, b] = vertical ? [r.top, r.bottom] : [r.left, r.right];
+      if (p < a || p >= b) continue;
+      const f = (p - a) / (b - a);
+      if (f < .25) return { id, where: 'before' };
+      if (f < .75) return { id, where: 'into' };
+      // Just past a tab whose children show is the start of those children.
+      return ids.some(x => tabs.get(x).parent === id) ? { id, where: 'first' } : { id, where: 'after' };
+    }
+    const first = tabs.get(ids[0]).tabEl.getBoundingClientRect();
+    if (p < (vertical ? first.top : first.left)) return { id: ids[0], where: 'before' };
+    const last = tabs.get(ids[ids.length - 1]).tabEl.getBoundingClientRect();
+    const top = ids.filter(x => !tabs.get(x).parent).pop();
+    return top && p >= (vertical ? last.bottom : last.right) ? { id: top, where: 'after' } : null;
+  };
+  // The marker: a line where the tab would go, indented to the depth it would have,
+  // or a box around the tab it would go into.
+  const mark = d => {
+    if (marked) {
+      marked.el.classList.remove(marked.cls);
+      marked.el.style.removeProperty('--drop-depth');
+    }
+    marked = null;
+    drop = d;
+    if (!d) return;
+    const shown = visibleOrder().filter(x => !sub.includes(x));
+    let id = d.id, cls = 'drop-' + d.where, dep = depth(d.id);
+    if (d.where === 'first') {
+      id = shown.find(x => tabs.get(x).parent === d.id);
+      cls = 'drop-before';
+      dep++;
+    } else if (d.where === 'after') {
+      const ts = subtree(d.id).filter(x => shown.includes(x));
+      id = ts[ts.length - 1];
+    }
+    const el = tabs.get(id).tabEl;
+    el.classList.add(cls);
+    if (cls !== 'drop-into') el.style.setProperty('--drop-depth', dep);
+    marked = { el, cls };
+  };
   const move = ev => {
     if (!moved) {
       if (Math.abs(pos(ev) - start) < 5) return;
       moved = dragging = true;
-      t.tabEl.classList.add('dragging');
+      for (const x of sub) tabs.get(x).tabEl.classList.add('dragging');
       document.body.classList.add('dragging-tab');
     }
-    const to = order.filter(x => {
-      if (x === t.id) return false;
-      const r = tabs.get(x).tabEl.getBoundingClientRect();
-      return (vertical ? r.top + r.height / 2 : r.left + r.width / 2) < pos(ev);
-    }).length;
-    if (order.indexOf(t.id) !== to) moveTab(t.id, to);
+    const d = target(ev);
+    if (d?.id !== drop?.id || d?.where !== drop?.where) mark(d);
   };
   const up = () => {
     document.removeEventListener('pointermove', move);
@@ -520,9 +735,11 @@ function dragTab(t, e) {
     document.removeEventListener('pointercancel', up);
     if (!moved) return;
     dragging = false;
-    t.tabEl.classList.remove('dragging');
+    for (const x of sub) tabs.get(x)?.tabEl.classList.remove('dragging');
     document.body.classList.remove('dragging-tab');
-    if (tabs.has(t.id) && order.join() !== before) saveOrder();
+    const d = drop;
+    mark(null);
+    if (d && tabs.has(t.id) && moveSubtree(t.id, d.id, d.where)) saveOrder();
   };
   document.addEventListener('pointermove', move);
   document.addEventListener('pointerup', up);
@@ -579,6 +796,23 @@ function openColors(t) {
     });
     colorMenu.appendChild(b);
   }
+  // Nesting, for touch screens too, where tabs can't be dragged.
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const sibs = siblings(t.id);
+  for (const [text, keys, enabled, run] of [
+    ['New nested tab', 'Alt+Shift+N', true, () => newTab(t.id)],
+    ['Indent', 'Alt+Shift+I', sibs.indexOf(t.id) > 0, () => indent(t.id)],
+    ['Outdent', 'Alt+Shift+O', !!t.parent, () => outdent(t.id)],
+  ]) {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.title = keys;
+    b.disabled = !enabled;
+    b.addEventListener('click', () => { closeColors(); run(); });
+    actions.appendChild(b);
+  }
+  colorMenu.appendChild(actions);
   const r = t.tabEl.getBoundingClientRect();
   colorMenu.hidden = false;
   const vertical = settings.tabs === 'left';
@@ -649,16 +883,21 @@ function shortcut(e) {
     return false;
   }
   if (e.type !== 'keydown' || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return true;
-  const i = order.indexOf(activeId);
-  const go = n => order.length && activate(order[(n + order.length) % order.length]);
+  // Stepping and numbering go by the tabs on show, skipping folded-away ones.
+  const vis = visibleOrder();
+  const i = vis.indexOf(activeId);
+  const go = n => vis.length && activate(vis[(n + vis.length) % vis.length]);
   switch (e.code) {
     case 'KeyT': newTab(); break;
+    case 'KeyN': if (activeId) newTab(activeId); break;
     case 'KeyW': if (activeId) closeTab(activeId); break;
     case 'KeyR': if (activeId) startRename(tabs.get(activeId)); break;
     case 'ArrowLeft': case 'BracketLeft': go(i - 1); break;
     case 'ArrowRight': case 'BracketRight': go(i + 1); break;
-    case 'PageUp': if (activeId) { moveTab(activeId, i - 1); saveOrder(); } break;
-    case 'PageDown': if (activeId) { moveTab(activeId, i + 1); saveOrder(); } break;
+    case 'PageUp': if (activeId) shiftTab(activeId, -1); break;
+    case 'PageDown': if (activeId) shiftTab(activeId, 1); break;
+    case 'KeyI': if (activeId) indent(activeId); break;
+    case 'KeyO': if (activeId) outdent(activeId); break;
     default:
       if (/^Digit[1-9]$/.test(e.code)) { go(Number(e.code.slice(5)) - 1); break; }
       return true;
@@ -675,24 +914,30 @@ async function sync() {
   try {
     list = await api('');
     // A server from before tab colours lists none, and saving one would clear the name.
-    statusEl.textContent = list.length && !('color' in list[0]) ? 'restart the server for tab colours' : '';
+    statusEl.textContent = !list.length ? ''
+      : !('color' in list[0]) ? 'restart the server for tab colours'
+      : !('parent' in list[0]) ? 'restart the server for nested tabs' : '';
   } catch {
     statusEl.textContent = 'server unreachable';
     return;
   }
   const live = new Set(list.map(x => x.id));
   for (const id of [...tabs.keys()]) if (!live.has(id)) removeTab(id);
+  // A move made here while the list was on its way wins over the server's, nesting included.
+  const current = !dragging && version === orderVersion;
   for (const info of list) {
+    const known = tabs.has(info.id);
     const t = tabs.get(info.id) || makeTab(info);
     t.name = info.name;
     t.color = info.color || '';
+    if (current || !known) t.parent = info.parent || '';
   }
-  if (!dragging && version === orderVersion) order = list.map(x => x.id);
-  else order = [...order.filter(id => tabs.has(id)), ...list.map(x => x.id).filter(id => !order.includes(id))];
+  order = treeOrder(current ? list.map(x => x.id)
+    : [...order.filter(id => tabs.has(id)), ...list.map(x => x.id).filter(id => !order.includes(id))]);
   if (!activeId && order.length) {
     let saved = null;
     try { saved = localStorage.getItem('xterm-web.active'); } catch {}
-    activate(order.includes(saved) ? saved : order[0]);
+    activate(order.includes(saved) ? saved : visibleOrder()[0]);
   }
   renderBar();
 }
