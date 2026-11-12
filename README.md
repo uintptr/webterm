@@ -1,7 +1,8 @@
 # xterm-web
 
-Tabbed web terminal: xterm.js in the browser, one dtach session per tab. No auth —
-meant for a trusted VLAN.
+Tabbed web terminal: xterm.js in the browser, one dtach session per tab.
+
+![Tabs nested in the side bar, with fastfetch on macOS in the active tab](docs/screenshot.png)
 
 ```sh
 npm ci                      # once: xterm.js, served to the browser from node_modules
@@ -30,13 +31,26 @@ ALLOW=10.0.0.2,10.0.0.3 ./start.sh   # only these clients (IPs or CIDRs); others
   an arrow to fold them away (per browser), and nested tabs without a colour of their
   own take their parent's. Closing a tab moves the tabs nested in it up a level. The
   right-click menu can also nest, for touch screens, where tabs can't be dragged.
+  In the side bar nested tabs are drawn as a tree (├ └ │); across the top they hang a
+  step lower per level. The active tab's whole tree stays lit while other tabs dim.
+- Tabs can be given a colour from the right-click menu (white and black included).
+  A named tab without one gets an automatic colour from its name, distinct from the
+  colours other tabs already show; tabs with the same name share it.
+- The window title is the page's hostname (its first label, or a whole IP) followed by
+  the active tab's name, so windows on different hosts are told apart.
 - Selecting text with the mouse copies it to the clipboard. Over plain http this
   goes through `execCommand('copy')`, since `navigator.clipboard` needs https or
-  localhost; copies requested by programs in the terminal (OSC 52) are ignored.
-- The end of the tab bar shows the commit the server was started from, and a ⚙ for
-  settings: the tab bar down the left side (the default; on phones, the top) or
-  across the top, and the font size. These are kept per browser (localStorage), unlike tabs, since they
-  depend on the screen.
+  localhost; copies requested by programs in the terminal (OSC 52) are ignored. On
+  Linux and BSD the copy also fills PRIMARY, so middle-click pastes in Firefox.
+- Emoji render at full width (Unicode 11 widths), and on macOS Option types the
+  symbols the keyboard layout puts behind it (e.g. @ on Canadian French) rather than
+  acting as Meta.
+- The end of the tab bar shows the checkout's commit, marked with `*` when `server.py`
+  has changed since the server started (a restart is needed; page changes only need a
+  reload), and a ⚙ for settings: the tab bar down the left side (the default; on
+  phones, the top) or across the top, and the font size. The side bar's width is set
+  by dragging its edge (double-click it for the default). These are kept per browser
+  (localStorage), unlike tabs, since they depend on the screen.
 - From a local terminal: `dtach -a sessions/<id>.sock -r winch` (detach with `Ctrl \`).
 
 ## Keys
